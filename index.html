@@ -1381,10 +1381,21 @@
                             ctx.shadowColor = '#FFD700';
                             ctx.shadowBlur = 10;
                         }
-                        ctx.drawImage(birdImage, this.x, this.y, this.width, this.height);
+                        // Render bird sprite 50% larger while maintaining collision boundaries
+                        const renderWidth = this.width * 1.5;
+                        const renderHeight = this.height * 1.5;
+                        const renderX = this.x - (renderWidth - this.width) / 2; // Center the larger sprite
+                        const renderY = this.y - (renderHeight - this.height) / 2;
+                        ctx.drawImage(birdImage, renderX, renderY, renderWidth, renderHeight);
                         ctx.shadowBlur = 0;
                     } else {
                         // Fallback rendering if image not loaded
+                        // Render fallback bird 50% larger while maintaining collision boundaries
+                        const renderWidth = this.width * 1.5;
+                        const renderHeight = this.height * 1.5;
+                        const renderX = this.x - (renderWidth - this.width) / 2; // Center the larger sprite
+                        const renderY = this.y - (renderHeight - this.height) / 2;
+
                         // Bird body (with invulnerability glow effect)
                         if (gameState.isInvulnerable) {
                             ctx.fillStyle = '#FFE55C'; // Slightly brighter when invulnerable
@@ -1394,12 +1405,12 @@
                             ctx.fillStyle = '#FFD700';
                             ctx.shadowBlur = 0;
                         }
-                        ctx.fillRect(this.x, this.y, this.width, this.height);
+                        ctx.fillRect(renderX, renderY, renderWidth, renderHeight);
 
                         // Bird outline
                         ctx.strokeStyle = gameState.isInvulnerable ? '#FFA500' : '#FF8C00';
                         ctx.lineWidth = 2;
-                        ctx.strokeRect(this.x, this.y, this.width, this.height);
+                        ctx.strokeRect(renderX, renderY, renderWidth, renderHeight);
 
                         // Reset shadow
                         ctx.shadowBlur = 0;
@@ -1459,23 +1470,36 @@
 
             this.render = function() {
                 if (assetsLoaded === totalAssets) {
+                    // Render power-up sprites 50% larger while maintaining collision boundaries
+                    const renderWidth = this.width * 1.5;
+                    const renderHeight = this.height * 1.5;
+                    const renderX = this.x - (renderWidth - this.width) / 2; // Center the larger sprite
+                    const renderY = this.y - (renderHeight - this.height) / 2;
+
                     if (this.type === 'snow') {
-                        ctx.drawImage(snowImage, this.x, this.y, this.width, this.height);
+                        ctx.drawImage(snowImage, renderX, renderY, renderWidth, renderHeight);
                     } else if (this.type === 'monkey') {
-                        ctx.drawImage(monkeyImage, this.x, this.y, this.width, this.height);
+                        ctx.drawImage(monkeyImage, renderX, renderY, renderWidth, renderHeight);
                     }
                 } else {
-                    // Fallback rendering
+                    // Fallback rendering - render 50% larger while maintaining collision boundaries
+                    const renderWidth = this.width * 1.5;
+                    const renderHeight = this.height * 1.5;
+                    const renderX = this.x - (renderWidth - this.width) / 2; // Center the larger sprite
+                    const renderY = this.y - (renderHeight - this.height) / 2;
+
                     if (this.type === 'snow') {
                         ctx.fillStyle = '#E0E0E0';
-                        ctx.fillRect(this.x, this.y, this.width, this.height);
+                        ctx.fillRect(renderX, renderY, renderWidth, renderHeight);
                         ctx.fillStyle = '#FFF';
-                        ctx.fillRect(this.x + 5, this.y + 5, this.width - 10, this.height - 10);
+                        const innerMargin = 5 * 1.5; // Scale the inner margin proportionally
+                        ctx.fillRect(renderX + innerMargin, renderY + innerMargin, renderWidth - 2 * innerMargin, renderHeight - 2 * innerMargin);
                     } else if (this.type === 'monkey') {
                         ctx.fillStyle = '#8B4513';
-                        ctx.fillRect(this.x, this.y, this.width, this.height);
+                        ctx.fillRect(renderX, renderY, renderWidth, renderHeight);
                         ctx.fillStyle = '#DEB887';
-                        ctx.fillRect(this.x + 5, this.y + 5, this.width - 10, this.height - 10);
+                        const innerMargin = 5 * 1.5; // Scale the inner margin proportionally
+                        ctx.fillRect(renderX + innerMargin, renderY + innerMargin, renderWidth - 2 * innerMargin, renderHeight - 2 * innerMargin);
                     }
                 }
             };
@@ -1520,31 +1544,37 @@
             };
 
             this.render = function() {
+                // Apply column retraction effect to visual rendering only (collision detection uses original heights)
+                const retractionFactor = 1 - gameState.columnRetractionLevel;
+                const retractedTopHeight = this.topHeight * retractionFactor;
+                const retractedBottomHeight = this.bottomHeight * retractionFactor;
+                const retractedBottomY = canvas.height - retractedBottomHeight;
+
                 if (!assetsLoaded) {
                     // Fallback rendering if image not loaded
                     ctx.fillStyle = '#228B22';
 
-                    // Top column
-                    ctx.fillRect(this.x, 0, this.width, this.topHeight);
+                    // Top column (retracted)
+                    ctx.fillRect(this.x, 0, this.width, retractedTopHeight);
 
-                    // Bottom column
-                    ctx.fillRect(this.x, this.bottomY, this.width, this.bottomHeight);
+                    // Bottom column (retracted, moved down)
+                    ctx.fillRect(this.x, retractedBottomY, this.width, retractedBottomHeight);
 
                     // Column borders
                     ctx.strokeStyle = '#006400';
                     ctx.lineWidth = 2;
-                    ctx.strokeRect(this.x, 0, this.width, this.topHeight);
-                    ctx.strokeRect(this.x, this.bottomY, this.width, this.bottomHeight);
+                    ctx.strokeRect(this.x, 0, this.width, retractedTopHeight);
+                    ctx.strokeRect(this.x, retractedBottomY, this.width, retractedBottomHeight);
                 } else {
-                    // Top column (flipped)
+                    // Top column (flipped and retracted)
                     ctx.save();
-                    ctx.translate(this.x + this.width/2, this.topHeight);
+                    ctx.translate(this.x + this.width/2, retractedTopHeight);
                     ctx.scale(1, -1);
-                    ctx.drawImage(columnImage, -this.width/2, 0, this.width, this.topHeight);
+                    ctx.drawImage(columnImage, -this.width/2, 0, this.width, retractedTopHeight);
                     ctx.restore();
 
-                    // Bottom column
-                    ctx.drawImage(columnImage, this.x, this.bottomY, this.width, this.bottomHeight);
+                    // Bottom column (retracted and repositioned)
+                    ctx.drawImage(columnImage, this.x, retractedBottomY, this.width, retractedBottomHeight);
                 }
             };
 
@@ -1602,14 +1632,9 @@
             };
         }
 
-        // Spawn new column (with column retraction applied)
+        // Spawn new column
         function spawnColumn() {
-            // Apply column retraction - reduce gap size by 2.5% per level
-            const originalGap = COLUMN_GAP;
-            const retractionPercent = gameState.columnRetractionLevel * 2.5;
-            const retractedGap = originalGap - (originalGap * retractionPercent / 100);
-
-            columns.push(new Column(canvas.width, retractedGap));
+            columns.push(new Column(canvas.width));
         }
 
         // Power-up spawning
@@ -1644,10 +1669,10 @@
         // Power-up collection
         function collectPowerUp(powerUp) {
             if (powerUp.type === 'snow') {
-                // Column retraction power-up: reduce column gaps by 2.5%
-                gameState.columnRetractionLevel++;
+                // Column retraction power-up: reduce column heights by 2.5%
+                gameState.columnRetractionLevel = Math.min(gameState.columnRetractionLevel + 0.025, 0.1);
                 gameState.columnRetractionTimestamps.push(Date.now());
-                console.log(`Snow power-up collected! Retraction level: ${gameState.columnRetractionLevel} (${gameState.columnRetractionLevel * 2.5}% harder)`);
+                console.log(`Snow power-up collected! Column retraction level: ${gameState.columnRetractionLevel} (${(gameState.columnRetractionLevel * 100).toFixed(1)}% height reduction) - All columns shrunk!`);
             } else if (powerUp.type === 'monkey') {
                 // Invulnerability power-up: 10 seconds of collision immunity
                 gameState.isInvulnerable = true;
@@ -1662,30 +1687,22 @@
             const currentTime = Date.now();
             const RETRACTION_DURATION = 15000; // 15 seconds
 
-            // Check for expired retraction effects
-            let expiredCount = 0;
-            for (let i = 0; i < gameState.columnRetractionTimestamps.length; i++) {
-                const timestamp = gameState.columnRetractionTimestamps[i];
-                if (currentTime - timestamp >= RETRACTION_DURATION) {
-                    expiredCount++;
-                } else {
-                    // Once we hit a non-expired timestamp, we can break since they're in chronological order
-                    break;
+            // Remove expired retraction timestamps
+            const oldLength = gameState.columnRetractionTimestamps.length;
+            gameState.columnRetractionTimestamps = gameState.columnRetractionTimestamps.filter(
+                timestamp => currentTime - timestamp < RETRACTION_DURATION
+            );
+
+            // Recalculate retraction level based on active timestamps (2.5% per active timestamp, max 10%)
+            const newRetractionLevel = Math.min(gameState.columnRetractionTimestamps.length * 0.025, 0.1);
+
+            if (newRetractionLevel !== gameState.columnRetractionLevel) {
+                const expiredCount = oldLength - gameState.columnRetractionTimestamps.length;
+                gameState.columnRetractionLevel = newRetractionLevel;
+
+                if (expiredCount > 0) {
+                    console.log(`${expiredCount} column retraction effects expired after 15 seconds. Current level: ${(gameState.columnRetractionLevel * 100).toFixed(1)}% - Columns returning to normal size!`);
                 }
-            }
-
-            // Remove expired retraction effects
-            if (expiredCount > 0) {
-                gameState.columnRetractionTimestamps.splice(0, expiredCount);
-                gameState.columnRetractionLevel -= expiredCount;
-
-                // Ensure retraction level doesn't go negative
-                if (gameState.columnRetractionLevel < 0) {
-                    gameState.columnRetractionLevel = 0;
-                    gameState.columnRetractionTimestamps = [];
-                }
-
-                console.log(`${expiredCount} column retraction effects expired. Current level: ${gameState.columnRetractionLevel}`);
             }
         }
 

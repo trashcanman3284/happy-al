@@ -20,7 +20,7 @@ Feature-complete game implemented with all core mechanics, power-ups, state mana
 - Start screen with instructions and title display
 
 ## What's Next
-Project complete. No further development tasks required.
+Project complete. No further development planned.
 
 ## Known Issues
 None. All previously identified issues have been resolved.
