@@ -2,1248 +2,55 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Happy Al</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 50%, #98FB98 100%);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            font-family: Arial, sans-serif;
+        * { margin: 0; padding: 0; }
+        html, body {
+            width: 100%; height: 100%;
             overflow: hidden;
+            background: #000;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
-
-        canvas {
-            border: 2px solid #333;
-            border-radius: 10px;
-            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 50%, #98FB98 100%);
-            cursor: pointer;
-            max-width: 100vw;
-            max-height: 100vh;
-        }
-
-        .game-info {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: #333;
-            font-weight: bold;
-            background: rgba(255, 255, 255, 0.8);
-            padding: 10px;
-            border-radius: 5px;
-        }
-
-        .controls {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            color: #333;
-            background: rgba(255, 255, 255, 0.8);
-            padding: 10px;
-            border-radius: 5px;
-            text-align: center;
-        }
-
-        .game-over {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            display: none;
-        }
-
-        @media (max-width: 768px) {
-            canvas {
-                border: 1px solid #333;
-                width: 95vw;
-                height: 70vh;
-            }
-        }
+        canvas { display: block; touch-action: none; }
     </style>
 </head>
 <body>
-    <div class="game-info">
-        <div>Happy Al</div>
-        <div id="score">Score: 0</div>
-        <div id="highScore">High Score: 0</div>
-    </div>
-
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
-
-    <div class="controls">
-        <div>Press SPACEBAR or CLICK to make Al jump!</div>
-    </div>
-
-    <div class="game-over" id="gameOver">
-        <h2>Game Over!</h2>
-        <p>Final Score: <span id="finalScore">0</span></p>
-        <p id="highScoreMessage">High Score: <span id="finalHighScore">0</span></p>
-        <p id="newHighScoreMessage" style="display: none; color: #FFD700; font-weight: bold;">🎉 NEW HIGH SCORE! 🎉</p>
-        <p>Press SPACEBAR or CLICK to restart</p>
-    </div>
-
+    <canvas id="gameCanvas"></canvas>
     <script>
-        // Canvas setup
+        // Canvas setup with DPR support
         const canvas = document.getElementById('gameCanvas');
-        let ctx = canvas.getContext('2d');
-
-        // Memory monitoring and context refresh system
-        // This system monitors memory usage during extended gameplay sessions (25+ minutes)
-        // and performs canvas context refresh when memory consumption exceeds safe thresholds.
-        // The refresh preserves all game state while clearing accumulated memory overhead.
-        //
-        // Key features:
-        // - Tracks memory usage every 5 seconds during active gameplay
-        // - Triggers refresh after 25+ minutes if memory exceeds 50MB threshold
-        // - Force refresh at 100MB to prevent crashes
-        // - Preserves game state (score, bird position, columns, power-ups) during refresh
-        // - Maintains 60fps performance without interrupting gameplay
-        // - Debug keys: Ctrl+Shift+M (memory stats), Ctrl+Shift+R (manual refresh)
-        const memoryMonitor = {
-            gameStartTime: 0,
-            lastContextRefresh: 0,
-            memoryCheckInterval: 5000, // Check every 5 seconds
-            lastMemoryCheck: 0,
-            memoryThreshold: 50 * 1024 * 1024, // 50MB threshold (in bytes)
-            minGameTimeForRefresh: 25 * 60 * 1000, // 25 minutes in milliseconds
-            maxMemoryBeforeForceRefresh: 100 * 1024 * 1024, // 100MB force refresh
-            refreshInProgress: false,
-
-            init: function() {
-                this.gameStartTime = Date.now();
-                this.lastContextRefresh = this.gameStartTime;
-                this.lastMemoryCheck = this.gameStartTime;
-
-                // Initialize sprite monitoring variables
-                this.lastBirdSize = null;
-                this.lastCanvasSize = null;
-            },
-
-            getMemoryUsage: function() {
-                // Use performance.memory if available (Chrome/Edge)
-                if (performance.memory) {
-                    return {
-                        used: performance.memory.usedJSHeapSize,
-                        total: performance.memory.totalJSHeapSize,
-                        limit: performance.memory.jsHeapSizeLimit
-                    };
-                }
-                // Fallback estimation based on game objects and time
-                const estimatedMemory = this.estimateMemoryUsage();
-                return {
-                    used: estimatedMemory,
-                    total: estimatedMemory * 1.5,
-                    limit: 256 * 1024 * 1024 // 256MB estimated limit
-                };
-            },
-
-            estimateMemoryUsage: function() {
-                const currentTime = Date.now();
-                const gameTimeMinutes = (currentTime - this.gameStartTime) / (1000 * 60);
-
-                // Base memory usage + accumulated overhead over time
-                let estimatedUsage = 5 * 1024 * 1024; // 5MB base
-
-                // Add estimated overhead: ~1MB per minute of gameplay
-                estimatedUsage += gameTimeMinutes * 1024 * 1024;
-
-                // Add memory for current game objects
-                estimatedUsage += columns.length * 1024; // ~1KB per column
-                estimatedUsage += powerUps.length * 512; // ~512 bytes per power-up
-
-                return estimatedUsage;
-            },
-
-            shouldRefreshContext: function() {
-                if (this.refreshInProgress) return false;
-
-                const currentTime = Date.now();
-                const gameTime = currentTime - this.gameStartTime;
-                const timeSinceLastRefresh = currentTime - this.lastContextRefresh;
-
-                // Only check if we've been playing for at least 25 minutes
-                if (gameTime < this.minGameTimeForRefresh) return false;
-
-                const memory = this.getMemoryUsage();
-
-                // Force refresh if memory usage is extremely high
-                if (memory.used > this.maxMemoryBeforeForceRefresh) {
-                    console.warn('Force refreshing context due to high memory usage:', memory.used / (1024 * 1024), 'MB');
-                    return true;
-                }
-
-                // Refresh if memory usage exceeds threshold and we haven't refreshed recently
-                if (memory.used > this.memoryThreshold && timeSinceLastRefresh > 10 * 60 * 1000) { // 10 min since last refresh
-                    console.log('Memory threshold exceeded, refreshing context:', memory.used / (1024 * 1024), 'MB');
-                    return true;
-                }
-
-                return false;
-            },
-
-            checkMemoryUsage: function() {
-                const currentTime = Date.now();
-
-                // Only check periodically to avoid performance impact
-                if (currentTime - this.lastMemoryCheck < this.memoryCheckInterval) {
-                    return;
-                }
-
-                this.lastMemoryCheck = currentTime;
-
-                if (this.shouldRefreshContext()) {
-                    this.refreshCanvasContext();
-                }
-            },
-
-            refreshCanvasContext: function() {
-                if (this.refreshInProgress) return;
-
-                console.log('Starting canvas context refresh...');
-                this.refreshInProgress = true;
-
-                try {
-                    // Store current game state
-                    const savedState = this.saveGameState();
-
-                    // Get current context attributes for preservation
-                    const contextAttributes = ctx.getContextAttributes ? ctx.getContextAttributes() : {};
-
-                    // Clear current context references
-                    ctx = null;
-
-                    // Force garbage collection hint (if available)
-                    if (window.gc) {
-                        window.gc();
-                    }
-
-                    // Small delay to allow cleanup
-                    setTimeout(() => {
-                        try {
-                            // Create new context
-                            ctx = canvas.getContext('2d', contextAttributes);
-
-                            // Restore game state
-                            this.restoreGameState(savedState);
-
-                            // Refresh asset loading state for new context
-                            this.refreshAssets();
-
-                            // Run comprehensive sprite boundary validation for all 7 sprites
-                            this.runComprehensiveValidation().then(results => {
-                                if (!results.overallSuccess) {
-                                    console.warn('Context refresh validation found issues - this may indicate problems with sprite boundary calculations');
-                                }
-                            }).catch(error => {
-                                console.error('Comprehensive validation failed after context refresh:', error);
-                                // Fallback to basic boundary validation
-                                this.verifyCollisionBoundaries();
-                            });
-
-                            // Update refresh timestamp
-                            this.lastContextRefresh = Date.now();
-                            this.refreshInProgress = false;
-
-                            console.log('Canvas context refresh completed successfully');
-
-                            // Log memory status after refresh
-                            const memoryAfter = this.getMemoryUsage();
-                            console.log('Memory usage after refresh:', (memoryAfter.used / (1024 * 1024)).toFixed(2), 'MB');
-                        } catch (error) {
-                            console.error('Error during context refresh:', error);
-                            this.refreshInProgress = false;
-                        }
-                    }, 16); // One frame delay
-
-                } catch (error) {
-                    console.error('Error saving game state for refresh:', error);
-                    this.refreshInProgress = false;
-
-                    // Fallback: just reset the refresh flag and continue with current context
-                    console.log('Context refresh failed, continuing with current context');
-                }
-            },
-
-            saveGameState: function() {
-                return {
-                    // Game state
-                    gameState: {
-                        running: gameState.running,
-                        gameOver: gameState.gameOver,
-                        score: gameState.score,
-                        highScore: gameState.highScore,
-                        lastTime: gameState.lastTime,
-                        lastColumnSpawn: gameState.lastColumnSpawn,
-                        lastPowerUpSpawn: gameState.lastPowerUpSpawn,
-                        nextPowerUpSpawn: gameState.nextPowerUpSpawn,
-                        columnRetractionLevel: gameState.columnRetractionLevel,
-                        isInvulnerable: gameState.isInvulnerable,
-                        invulnerabilityStart: gameState.invulnerabilityStart,
-                        invulnerabilityFlashTime: gameState.invulnerabilityFlashTime
-                    },
-
-                    // Bird state
-                    bird: {
-                        x: bird.x,
-                        y: bird.y,
-                        velocity: bird.velocity
-                    },
-
-                    // Columns (simplified for memory efficiency)
-                    columns: columns.map(col => ({
-                        x: col.x,
-                        gapY: col.gapY,
-                        topHeight: col.topHeight,
-                        bottomY: col.bottomY,
-                        bottomHeight: col.bottomHeight,
-                        passed: col.passed
-                    })),
-
-                    // Power-ups
-                    powerUps: powerUps.map(pu => ({
-                        x: pu.x,
-                        y: pu.y,
-                        type: pu.type,
-                        collected: pu.collected
-                    }))
-                };
-            },
-
-            restoreGameState: function(savedState) {
-                // Restore game state
-                Object.assign(gameState, savedState.gameState);
-
-                // Restore bird state
-                Object.assign(bird, savedState.bird);
-
-                // Restore columns
-                columns = savedState.columns.map(colData => {
-                    const col = new Column(colData.x, COLUMN_GAP);
-                    col.gapY = colData.gapY;
-                    col.topHeight = colData.topHeight;
-                    col.bottomY = colData.bottomY;
-                    col.bottomHeight = colData.bottomHeight;
-                    col.passed = colData.passed;
-                    return col;
-                });
-
-                // Restore power-ups
-                powerUps = savedState.powerUps.map(puData => {
-                    const pu = new PowerUp(puData.x, puData.y, puData.type);
-                    pu.collected = puData.collected;
-                    return pu;
-                });
-
-                console.log('Game state restored after context refresh');
-            },
-
-            refreshAssets: function() {
-                // Assets should still be loaded in memory, but we may need to ensure
-                // they work correctly with the new context. Most browsers handle this
-                // automatically, but we can verify asset state if needed.
-
-                // Verify asset loading state is maintained
-                if (assetsLoaded < totalAssets) {
-                    console.warn('Some assets may need reloading after context refresh');
-                    // Assets should reload automatically through their existing onload handlers
-                }
-            },
-
-            verifyCollisionBoundaries: function() {
-                // Enhanced sprite boundary validation across all seven sprites during context refresh cycles
-                // Tests: happyal.png, column.png, snow.png, monkey.png, background.png, homepage.png, startgamebutton.png
-                // Ensures collision detection maintains accuracy during canvas context recreation
-                console.log('Starting enhanced sprite boundary validation for context refresh cycles...');
-
-                let boundariesValid = true;
-                const validationResults = {
-                    happyal: false,
-                    column: false,
-                    snow: false,
-                    monkey: false,
-                    background: false,
-                    homepage: false,
-                    startgamebutton: false
-                };
-
-                // 1. Validate happyal.png sprite boundaries (bird)
-                try {
-                    const birdBounds = bird.getBounds();
-
-                    // Check boundary calculations are consistent
-                    if (birdBounds.left >= 0 && birdBounds.right <= canvas.width + bird.width &&
-                        birdBounds.top >= -bird.height && birdBounds.bottom <= canvas.height + bird.height) {
-
-                        // Validate collision padding is correctly applied
-                        const expectedPadding = bird.width * 0.15; // 15% collision padding
-                        const actualPadding = bird.x - birdBounds.left;
-
-                        if (Math.abs(actualPadding - expectedPadding) < 1) {
-                            validationResults.happyal = true;
-                            console.log('✓ happyal.png boundaries valid - collision padding preserved');
-                        } else {
-                            console.warn('✗ happyal.png collision padding incorrect after refresh');
-                            boundariesValid = false;
-                        }
-                    } else {
-                        console.warn('✗ happyal.png boundaries invalid after context refresh');
-                        boundariesValid = false;
-                    }
-                } catch (error) {
-                    console.error('✗ happyal.png boundary validation failed:', error);
-                    boundariesValid = false;
-                }
-
-                // 2. Validate column.png sprite boundaries
-                try {
-                    let validColumns = 0;
-                    columns.forEach((column, index) => {
-                        const bounds = column.getBounds();
-
-                        // Check both top and bottom column boundaries
-                        if (bounds.top && bounds.bottom) {
-                            // Validate collision padding (10% reduction for columns)
-                            const expectedPadding = column.width * 0.1;
-                            const actualPadding = column.x - bounds.top.left;
-
-                            if (Math.abs(actualPadding - expectedPadding) < 1 &&
-                                bounds.top.right <= canvas.width && bounds.bottom.right <= canvas.width) {
-                                validColumns++;
-                            } else {
-                                console.warn(`✗ Column ${index} boundary padding incorrect`);
-                            }
-                        } else {
-                            console.warn(`✗ Column ${index} missing boundary data`);
-                        }
-                    });
-
-                    if (validColumns === columns.length) {
-                        validationResults.column = true;
-                        console.log(`✓ column.png boundaries valid for ${validColumns} columns`);
-                    } else {
-                        console.warn(`✗ ${columns.length - validColumns} columns have invalid boundaries`);
-                        boundariesValid = false;
-                    }
-                } catch (error) {
-                    console.error('✗ column.png boundary validation failed:', error);
-                    boundariesValid = false;
-                }
-
-                // 3. Validate snow.png and monkey.png power-up boundaries
-                try {
-                    let validPowerUps = 0;
-                    let snowCount = 0, monkeyCount = 0;
-
-                    powerUps.forEach((powerUp, index) => {
-                        if (powerUp.getBounds) {
-                            const bounds = powerUp.getBounds();
-
-                            // Check power-up boundaries are within reasonable limits
-                            if (bounds.left >= -powerUp.width && bounds.right <= canvas.width + powerUp.width &&
-                                bounds.top >= -powerUp.height && bounds.bottom <= canvas.height + powerUp.height) {
-                                validPowerUps++;
-                                if (powerUp.type === 'snow') snowCount++;
-                                if (powerUp.type === 'monkey') monkeyCount++;
-                            } else {
-                                console.warn(`✗ PowerUp ${index} (${powerUp.type}) boundaries invalid`);
-                            }
-                        }
-                    });
-
-                    if (validPowerUps === powerUps.length) {
-                        validationResults.snow = true;
-                        validationResults.monkey = true;
-                        console.log(`✓ Power-up boundaries valid (${snowCount} snow, ${monkeyCount} monkey)`);
-                    } else {
-                        console.warn(`✗ ${powerUps.length - validPowerUps} power-ups have invalid boundaries`);
-                        if (snowCount === 0) validationResults.snow = true; // No snow power-ups to validate
-                        if (monkeyCount === 0) validationResults.monkey = true; // No monkey power-ups to validate
-                        boundariesValid = false;
-                    }
-                } catch (error) {
-                    console.error('✗ Power-up boundary validation failed:', error);
-                    validationResults.snow = powerUps.filter(p => p.type === 'snow').length === 0;
-                    validationResults.monkey = powerUps.filter(p => p.type === 'monkey').length === 0;
-                    boundariesValid = false;
-                }
-
-                // 4. Validate background.png tiling alignment
-                try {
-                    // Test background tiling consistency by checking if drawImage calls would be valid
-                    const testBackgroundBounds = {
-                        x: 0, y: 0,
-                        width: canvas.width, height: canvas.height
-                    };
-
-                    // Simulate background tiling validation
-                    if (backgroundImage.complete && backgroundImage.naturalWidth > 0) {
-                        // Background asset is loaded and valid
-                        const tilesX = Math.ceil(canvas.width / backgroundImage.naturalWidth);
-                        const tilesY = Math.ceil(canvas.height / backgroundImage.naturalHeight);
-
-                        if (tilesX > 0 && tilesY > 0) {
-                            validationResults.background = true;
-                            console.log(`✓ background.png tiling valid (${tilesX}x${tilesY} tiles)`);
-                        } else {
-                            console.warn('✗ background.png tiling calculations invalid');
-                            boundariesValid = false;
-                        }
-                    } else {
-                        console.warn('✗ background.png asset not properly loaded');
-                        boundariesValid = false;
-                    }
-                } catch (error) {
-                    console.error('✗ background.png validation failed:', error);
-                    boundariesValid = false;
-                }
-
-                // 5. Validate homepage.png and startgamebutton.png UI sprites
-                try {
-                    // These sprites are used in menu/UI rendering
-                    if (homepageImage.complete && homepageImage.naturalWidth > 0) {
-                        validationResults.homepage = true;
-                        console.log('✓ homepage.png asset valid');
-                    } else {
-                        console.warn('✗ homepage.png asset corrupted or not loaded');
-                        boundariesValid = false;
-                    }
-
-                    if (startgamebuttonImage.complete && startgamebuttonImage.naturalWidth > 0) {
-                        validationResults.startgamebutton = true;
-                        console.log('✓ startgamebutton.png asset valid');
-                    } else {
-                        console.warn('✗ startgamebutton.png asset corrupted or not loaded');
-                        boundariesValid = false;
-                    }
-                } catch (error) {
-                    console.error('✗ UI sprite validation failed:', error);
-                    boundariesValid = false;
-                }
-
-                // Generate comprehensive validation report
-                const validSprites = Object.values(validationResults).filter(v => v).length;
-                const totalSprites = Object.keys(validationResults).length;
-
-                console.log(`Sprite boundary validation complete: ${validSprites}/${totalSprites} sprites valid`);
-                console.log('Validation results:', validationResults);
-
-                if (boundariesValid && validSprites === totalSprites) {
-                    console.log('✓ All sprite boundaries verified after context refresh');
-                } else {
-                    console.warn(`✗ ${totalSprites - validSprites} sprites have boundary issues after refresh`);
-                }
-
-                return boundariesValid && validSprites === totalSprites;
-            },
-
-            // Enhanced method: Validate sprite boundaries across context refresh cycles with drift detection
-            validateSpriteBoundariesAcrossRefreshCycles: function() {
-                console.log('=== ENHANCED SPRITE BOUNDARY VALIDATION FOR CONTEXT REFRESH CYCLES ===');
-
-                let validationPassed = true;
-                const driftThreshold = 0.1; // Maximum allowed boundary drift in pixels
-
-                try {
-                    // Step 1: Capture baseline boundary calculations for all 7 sprites
-                    const baselineBoundaries = this.captureBoundarySnapshot();
-                    console.log('Captured baseline boundaries for all 7 sprites');
-
-                    // Step 2: Simulate context refresh cycle
-                    const refreshResult = this.performControlledContextRefresh();
-                    if (!refreshResult.success) {
-                        console.error('Context refresh simulation failed');
-                        return false;
-                    }
-
-                    // Step 3: Recapture boundaries after refresh and compare for drift
-                    const postRefreshBoundaries = this.captureBoundarySnapshot();
-                    console.log('Captured post-refresh boundaries for drift analysis');
-
-                    // Step 4: Analyze boundary drift across all sprites
-                    const driftAnalysis = this.analyzeBoundaryDrift(baselineBoundaries, postRefreshBoundaries, driftThreshold);
-
-                    if (driftAnalysis.hasDrift) {
-                        console.warn(`✗ Boundary drift detected across ${driftAnalysis.driftCount}/${driftAnalysis.totalSprites} sprites`);
-                        console.warn('Sprites with drift:', driftAnalysis.spritesWithDrift);
-                        validationPassed = false;
-                    } else {
-                        console.log(`✓ No boundary drift detected - all ${driftAnalysis.totalSprites} sprites maintain accurate positioning`);
-                    }
-
-                    // Step 5: Test collision detection consistency during refresh cycle
-                    const collisionConsistency = this.testCollisionDetectionConsistency();
-                    if (!collisionConsistency) {
-                        console.warn('✗ Collision detection consistency failed after context refresh');
-                        validationPassed = false;
-                    } else {
-                        console.log('✓ Collision detection remains consistent across context refresh');
-                    }
-
-                    // Step 6: Validate mobile timing compatibility during refresh
-                    return this.validateMobileTimingDuringRefresh().then(timingValid => {
-                        if (!timingValid) {
-                            console.warn('✗ Mobile timing validation failed during context refresh');
-                            validationPassed = false;
-                        } else {
-                            console.log('✓ Mobile timing remains stable during context refresh cycles');
-                        }
-
-                        const finalResult = validationPassed && timingValid;
-                        console.log(`=== FINAL VALIDATION RESULT: ${finalResult ? 'PASS' : 'FAIL'} ===`);
-                        return finalResult;
-                    });
-
-                } catch (error) {
-                    console.error('Enhanced sprite boundary validation failed:', error);
-                    return false;
-                }
-            },
-
-            // Capture boundary snapshot for all 7 sprites
-            captureBoundarySnapshot: function() {
-                const snapshot = {};
-
-                try {
-                    // 1. happyal.png (bird sprite)
-                    if (bird && bird.getBounds) {
-                        const birdBounds = bird.getBounds();
-                        snapshot.happyal = {
-                            left: birdBounds.left,
-                            right: birdBounds.right,
-                            top: birdBounds.top,
-                            bottom: birdBounds.bottom,
-                            width: bird.width,
-                            height: bird.height,
-                            x: bird.x,
-                            y: bird.y
-                        };
-                    }
-
-                    // 2. column.png (obstacle sprites)
-                    snapshot.columns = [];
-                    if (columns && Array.isArray(columns)) {
-                        columns.forEach((column, index) => {
-                            if (column.getBounds) {
-                                const bounds = column.getBounds();
-                                snapshot.columns.push({
-                                    index: index,
-                                    x: column.x,
-                                    topHeight: column.topHeight,
-                                    bottomHeight: column.bottomHeight,
-                                    width: column.width,
-                                    bounds: bounds
-                                });
-                            }
-                        });
-                    }
-
-                    // 3. snow.png and monkey.png (power-up sprites)
-                    snapshot.powerUps = [];
-                    if (powerUps && Array.isArray(powerUps)) {
-                        powerUps.forEach((powerUp, index) => {
-                            if (powerUp.getBounds) {
-                                const bounds = powerUp.getBounds();
-                                snapshot.powerUps.push({
-                                    index: index,
-                                    type: powerUp.type, // 'snow' or 'monkey'
-                                    x: powerUp.x,
-                                    y: powerUp.y,
-                                    width: powerUp.width,
-                                    height: powerUp.height,
-                                    bounds: bounds
-                                });
-                            }
-                        });
-                    }
-
-                    // 4. background.png (background tiling)
-                    if (backgroundImage && backgroundImage.complete) {
-                        snapshot.background = {
-                            naturalWidth: backgroundImage.naturalWidth,
-                            naturalHeight: backgroundImage.naturalHeight,
-                            canvasWidth: canvas.width,
-                            canvasHeight: canvas.height,
-                            tilesX: Math.ceil(canvas.width / backgroundImage.naturalWidth),
-                            tilesY: Math.ceil(canvas.height / backgroundImage.naturalHeight)
-                        };
-                    }
-
-                    // 5. homepage.png (UI sprite)
-                    if (homepageImage && homepageImage.complete) {
-                        snapshot.homepage = {
-                            naturalWidth: homepageImage.naturalWidth,
-                            naturalHeight: homepageImage.naturalHeight,
-                            loaded: true
-                        };
-                    }
-
-                    // 6. startgamebutton.png (UI sprite)
-                    if (startgamebuttonImage && startgamebuttonImage.complete) {
-                        snapshot.startgamebutton = {
-                            naturalWidth: startgamebuttonImage.naturalWidth,
-                            naturalHeight: startgamebuttonImage.naturalHeight,
-                            loaded: true
-                        };
-                    }
-
-                    snapshot.timestamp = performance.now();
-                    return snapshot;
-
-                } catch (error) {
-                    console.error('Failed to capture boundary snapshot:', error);
-                    return {};
-                }
-            },
-
-            // Perform controlled context refresh for testing
-            performControlledContextRefresh: function() {
-                try {
-                    // Save current context attributes
-                    const currentAttributes = ctx.getContextAttributes ? ctx.getContextAttributes() : {};
-
-                    // Get new context to simulate refresh
-                    const newCtx = canvas.getContext('2d', currentAttributes);
-
-                    if (newCtx) {
-                        // Update global context reference
-                        ctx = newCtx;
-                        console.log('Context refresh simulation completed');
-                        return { success: true, newContext: ctx };
-                    } else {
-                        console.error('Failed to get new context during refresh simulation');
-                        return { success: false };
-                    }
-
-                } catch (error) {
-                    console.error('Controlled context refresh failed:', error);
-                    return { success: false, error: error };
-                }
-            },
-
-            // Analyze boundary drift between snapshots
-            analyzeBoundaryDrift: function(baseline, postRefresh, threshold) {
-                const analysis = {
-                    hasDrift: false,
-                    driftCount: 0,
-                    totalSprites: 0,
-                    spritesWithDrift: [],
-                    maxDrift: 0
-                };
-
-                try {
-                    // Check happyal.png drift
-                    if (baseline.happyal && postRefresh.happyal) {
-                        analysis.totalSprites++;
-                        const drift = this.calculateBoundaryDrift(baseline.happyal, postRefresh.happyal);
-                        if (drift.maxDrift > threshold) {
-                            analysis.hasDrift = true;
-                            analysis.driftCount++;
-                            analysis.spritesWithDrift.push({ sprite: 'happyal.png', drift: drift.maxDrift });
-                            analysis.maxDrift = Math.max(analysis.maxDrift, drift.maxDrift);
-                        }
-                    }
-
-                    // Check column.png drift
-                    if (baseline.columns && postRefresh.columns && baseline.columns.length === postRefresh.columns.length) {
-                        baseline.columns.forEach((baseColumn, index) => {
-                            if (postRefresh.columns[index]) {
-                                analysis.totalSprites++;
-                                const drift = this.calculatePositionDrift(baseColumn, postRefresh.columns[index]);
-                                if (drift > threshold) {
-                                    analysis.hasDrift = true;
-                                    analysis.driftCount++;
-                                    analysis.spritesWithDrift.push({ sprite: `column.png[${index}]`, drift: drift });
-                                    analysis.maxDrift = Math.max(analysis.maxDrift, drift);
-                                }
-                            }
-                        });
-                    }
-
-                    // Check power-up drift (snow.png, monkey.png)
-                    if (baseline.powerUps && postRefresh.powerUps && baseline.powerUps.length === postRefresh.powerUps.length) {
-                        baseline.powerUps.forEach((basePowerUp, index) => {
-                            if (postRefresh.powerUps[index]) {
-                                analysis.totalSprites++;
-                                const drift = this.calculatePositionDrift(basePowerUp, postRefresh.powerUps[index]);
-                                if (drift > threshold) {
-                                    analysis.hasDrift = true;
-                                    analysis.driftCount++;
-                                    analysis.spritesWithDrift.push({
-                                        sprite: `${basePowerUp.type}.png[${index}]`,
-                                        drift: drift
-                                    });
-                                    analysis.maxDrift = Math.max(analysis.maxDrift, drift);
-                                }
-                            }
-                        });
-                    }
-
-                    // Check background.png consistency
-                    if (baseline.background && postRefresh.background) {
-                        analysis.totalSprites++;
-                        if (baseline.background.tilesX !== postRefresh.background.tilesX ||
-                            baseline.background.tilesY !== postRefresh.background.tilesY) {
-                            analysis.hasDrift = true;
-                            analysis.driftCount++;
-                            analysis.spritesWithDrift.push({ sprite: 'background.png', drift: 'tiling_changed' });
-                        }
-                    }
-
-                    // Check UI sprites (homepage.png, startgamebutton.png)
-                    ['homepage', 'startgamebutton'].forEach(sprite => {
-                        if (baseline[sprite] && postRefresh[sprite]) {
-                            analysis.totalSprites++;
-                            if (baseline[sprite].naturalWidth !== postRefresh[sprite].naturalWidth ||
-                                baseline[sprite].naturalHeight !== postRefresh[sprite].naturalHeight) {
-                                analysis.hasDrift = true;
-                                analysis.driftCount++;
-                                analysis.spritesWithDrift.push({ sprite: `${sprite}.png`, drift: 'dimensions_changed' });
-                            }
-                        }
-                    });
-
-                    return analysis;
-
-                } catch (error) {
-                    console.error('Boundary drift analysis failed:', error);
-                    return { hasDrift: true, error: error };
-                }
-            },
-
-            // Calculate boundary drift for a sprite
-            calculateBoundaryDrift: function(baseline, current) {
-                const drifts = [
-                    Math.abs(baseline.left - current.left),
-                    Math.abs(baseline.right - current.right),
-                    Math.abs(baseline.top - current.top),
-                    Math.abs(baseline.bottom - current.bottom)
-                ];
-
-                return {
-                    maxDrift: Math.max(...drifts),
-                    leftDrift: drifts[0],
-                    rightDrift: drifts[1],
-                    topDrift: drifts[2],
-                    bottomDrift: drifts[3]
-                };
-            },
-
-            // Calculate position drift for sprites
-            calculatePositionDrift: function(baseline, current) {
-                const xDrift = Math.abs(baseline.x - current.x);
-                const yDrift = baseline.y !== undefined && current.y !== undefined ?
-                    Math.abs(baseline.y - current.y) : 0;
-                return Math.max(xDrift, yDrift);
-            },
-
-            // Test collision detection consistency across refresh
-            testCollisionDetectionConsistency: function() {
-                try {
-                    // Test bird-column collision detection
-                    if (bird && bird.getBounds && columns && columns.length > 0) {
-                        const birdBounds = bird.getBounds();
-
-                        let collisionTestsPassed = 0;
-                        let totalTests = 0;
-
-                        columns.forEach((column, index) => {
-                            if (column.checkCollision) {
-                                totalTests++;
-                                try {
-                                    // Test collision detection method works
-                                    const collisionResult = column.checkCollision(birdBounds);
-                                    // Result should be boolean and not throw error
-                                    if (typeof collisionResult === 'boolean') {
-                                        collisionTestsPassed++;
-                                    }
-                                } catch (error) {
-                                    console.warn(`Collision detection failed for column ${index}:`, error);
-                                }
-                            }
-                        });
-
-                        return collisionTestsPassed === totalTests;
-                    }
-
-                    return true; // No collision objects to test
-
-                } catch (error) {
-                    console.error('Collision detection consistency test failed:', error);
-                    return false;
-                }
-            },
-
-            // Validate mobile timing during context refresh
-            validateMobileTimingDuringRefresh: function() {
-                console.log('Testing requestAnimationFrame timing during context refresh...');
-
-                return new Promise((resolve) => {
-                    const startTime = performance.now();
-                    let frameCount = 0;
-                    const targetFrames = 5; // Shorter test during refresh
-                    let timingStable = true;
-                    let lastFrameTime = startTime;
-
-                    function testFrameTiming() {
-                        const currentTime = performance.now();
-                        frameCount++;
-
-                        if (frameCount > 1) {
-                            const frameInterval = currentTime - lastFrameTime;
-                            // Check for erratic frame timing (too slow > 50ms or too fast < 5ms)
-                            if (frameInterval > 50 || frameInterval < 5) {
-                                timingStable = false;
-                            }
-                        }
-
-                        lastFrameTime = currentTime;
-
-                        if (frameCount >= targetFrames) {
-                            const totalTime = currentTime - startTime;
-                            const avgFrameTime = totalTime / targetFrames;
-                            const estimatedFPS = 1000 / avgFrameTime;
-
-                            // Mobile should maintain at least 20 FPS during refresh cycles
-                            const mobileCompatible = avgFrameTime <= 50 && timingStable;
-
-                            console.log(`Refresh timing: ${avgFrameTime.toFixed(1)}ms avg, ~${estimatedFPS.toFixed(1)} FPS, stable: ${timingStable}`);
-                            resolve(mobileCompatible);
-                        } else {
-                            requestAnimationFrame(testFrameTiming);
-                        }
-                    }
-
-                    requestAnimationFrame(testFrameTiming);
-                });
-            },
-
-            // New method: Simulate context refresh scenarios for testing
-            simulateContextRefresh: function() {
-                console.log('Simulating context refresh scenario...');
-
-                try {
-                    // Preserve current game state
-                    const preservedState = {
-                        birdPosition: { x: bird.x, y: bird.y, velocity: bird.velocity },
-                        columnsState: columns.map(col => ({ x: col.x, topHeight: col.topHeight, bottomHeight: col.bottomHeight })),
-                        powerUpsState: powerUps.map(p => ({ x: p.x, y: p.y, type: p.type, collected: p.collected })),
-                        gameScore: gameState.score,
-                        running: gameState.running
-                    };
-
-                    // Simulate context refresh by getting new context
-                    const oldCtx = ctx;
-                    ctx = canvas.getContext('2d');
-
-                    // Validate that context refresh doesn't break state
-                    if (ctx !== oldCtx) {
-                        console.log('Context refresh simulated successfully');
-
-                        // Verify all preserved states are intact
-                        let stateValid = true;
-
-                        if (bird.x !== preservedState.birdPosition.x || bird.y !== preservedState.birdPosition.y) {
-                            console.warn('Bird position changed during context refresh simulation');
-                            stateValid = false;
-                        }
-
-                        if (columns.length !== preservedState.columnsState.length) {
-                            console.warn('Column count changed during context refresh simulation');
-                            stateValid = false;
-                        }
-
-                        if (gameState.score !== preservedState.gameScore) {
-                            console.warn('Game score changed during context refresh simulation');
-                            stateValid = false;
-                        }
-
-                        return stateValid;
-                    }
-                } catch (error) {
-                    console.error('Context refresh simulation failed:', error);
-                    return false;
-                }
-
-                return true;
-            },
-
-            // New method: Validate asset corruption during mid-render refresh
-            validateAssetIntegrity: function() {
-                console.log('Validating asset integrity during refresh scenarios...');
-
-                const assetValidation = {};
-                const assets = [
-                    { name: 'happyal', image: birdImage },
-                    { name: 'column', image: columnImage },
-                    { name: 'snow', image: snowImage },
-                    { name: 'monkey', image: monkeyImage },
-                    { name: 'background', image: backgroundImage },
-                    { name: 'homepage', image: homepageImage },
-                    { name: 'startgamebutton', image: startgamebuttonImage }
-                ];
-
-                assets.forEach(asset => {
-                    try {
-                        // Check asset is properly loaded and not corrupted
-                        if (asset.image.complete) {
-                            if (asset.image.naturalWidth > 0 && asset.image.naturalHeight > 0) {
-                                // Test that we can draw the asset to detect corruption
-                                try {
-                                    ctx.save();
-                                    ctx.globalAlpha = 0; // Invisible test draw
-                                    ctx.drawImage(asset.image, -1000, -1000, 1, 1);
-                                    ctx.restore();
-                                    assetValidation[asset.name] = true;
-                                    console.log(`✓ ${asset.name}.png integrity verified`);
-                                } catch (drawError) {
-                                    assetValidation[asset.name] = false;
-                                    console.error(`✗ ${asset.name}.png draw test failed:`, drawError);
-                                }
-                            } else {
-                                assetValidation[asset.name] = false;
-                                console.warn(`✗ ${asset.name}.png has invalid dimensions`);
-                            }
-                        } else {
-                            assetValidation[asset.name] = false;
-                            console.warn(`✗ ${asset.name}.png not fully loaded`);
-                        }
-                    } catch (error) {
-                        assetValidation[asset.name] = false;
-                        console.error(`✗ ${asset.name}.png validation failed:`, error);
-                    }
-                });
-
-                const validAssets = Object.values(assetValidation).filter(v => v).length;
-                const totalAssets = Object.keys(assetValidation).length;
-
-                console.log(`Asset integrity validation: ${validAssets}/${totalAssets} assets valid`);
-                return validAssets === totalAssets;
-            },
-
-            // New method: Validate requestAnimationFrame timing on mobile
-            validateAnimationFrameTiming: function() {
-                console.log('Validating requestAnimationFrame timing for mobile compatibility...');
-
-                return new Promise((resolve) => {
-                    const startTime = performance.now();
-                    let frameCount = 0;
-                    const targetFrames = 10;
-
-                    function testFrame() {
-                        frameCount++;
-
-                        if (frameCount >= targetFrames) {
-                            const endTime = performance.now();
-                            const duration = endTime - startTime;
-                            const averageFrameTime = duration / targetFrames;
-                            const estimatedFPS = 1000 / averageFrameTime;
-
-                            console.log(`Animation frame timing: ${averageFrameTime.toFixed(2)}ms avg, ~${estimatedFPS.toFixed(1)} FPS`);
-
-                            // Mobile should maintain at least 30 FPS (33.33ms per frame)
-                            const isValidTiming = averageFrameTime <= 40; // Allow some margin
-
-                            if (isValidTiming) {
-                                console.log('✓ Animation frame timing valid for mobile');
-                            } else {
-                                console.warn('✗ Animation frame timing may be too slow for mobile');
-                            }
-
-                            resolve(isValidTiming);
-                        } else {
-                            requestAnimationFrame(testFrame);
-                        }
-                    }
-
-                    requestAnimationFrame(testFrame);
-                });
-            },
-
-            // Validate background tiling alignment during scrolling
-            validateBackgroundTiling: function() {
-                console.log('Validating background tiling alignment...');
-
-                try {
-                    if (!backgroundImage.complete || backgroundImage.naturalWidth <= 0) {
-                        console.warn('Background image not available for tiling validation');
-                        return false;
-                    }
-
-                    // Calculate tiling parameters
-                    const tileWidth = backgroundImage.naturalWidth;
-                    const tileHeight = backgroundImage.naturalHeight;
-                    const tilesX = Math.ceil(canvas.width / tileWidth) + 1; // +1 for scrolling
-                    const tilesY = Math.ceil(canvas.height / tileHeight) + 1;
-
-                    // Validate that tiling covers entire canvas without gaps
-                    const totalCoverageX = tilesX * tileWidth;
-                    const totalCoverageY = tilesY * tileHeight;
-
-                    if (totalCoverageX >= canvas.width && totalCoverageY >= canvas.height) {
-                        // Test for seam artifacts by checking alignment
-                        const scrollOffset = (Date.now() * 0.01) % tileWidth; // Simulated scroll position
-                        const alignmentValid = (scrollOffset >= 0 && scrollOffset < tileWidth);
-
-                        if (alignmentValid) {
-                            console.log('✓ Background tiling alignment valid - no seam artifacts detected');
-                            return true;
-                        } else {
-                            console.warn('✗ Background tiling alignment may have seam artifacts');
-                            return false;
-                        }
-                    } else {
-                        console.warn('✗ Background tiling insufficient coverage detected');
-                        return false;
-                    }
-                } catch (error) {
-                    console.error('Background tiling validation failed:', error);
-                    return false;
-                }
-            },
-
-            // Validate sprite boundaries after size changes (triggered by game events)
-            validateAfterSizeChange: function(spriteName, oldSize, newSize) {
-                console.log(`Validating ${spriteName} boundaries after size change: ${oldSize.width}x${oldSize.height} → ${newSize.width}x${newSize.height}`);
-                console.log('Running enhanced boundary validation to check for collision detection consistency...');
-
-                // Use enhanced boundary validation across refresh cycles to ensure size changes don't break collision detection
-                this.validateSpriteBoundariesAcrossRefreshCycles().then(result => {
-                    if (!result) {
-                        console.warn(`Enhanced sprite boundary validation failed after ${spriteName} size change`);
-                        console.warn('This may indicate collision detection inconsistencies - investigating asset integrity...');
-
-                        // Run asset integrity check to ensure sprite is not corrupted
-                        const assetValid = this.validateAssetIntegrity();
-                        if (!assetValid) {
-                            console.error(`Asset corruption detected for ${spriteName} after size change`);
-                        }
-                    } else {
-                        console.log(`✓ ${spriteName} size change validated - collision boundaries remain accurate`);
-                    }
-                }).catch(error => {
-                    console.error(`Validation error after ${spriteName} size change:`, error);
-                });
-
-                // Return immediate basic validation while enhanced validation runs async
-                return this.verifyCollisionBoundaries();
-            },
-
-            // Monitor for sprite size changes during gameplay
-            monitorSpriteChanges: function() {
-                // Track bird size changes (could happen during power-ups or animations)
-                const currentBirdSize = { width: bird.width, height: bird.height };
-                if (this.lastBirdSize &&
-                    (this.lastBirdSize.width !== currentBirdSize.width ||
-                     this.lastBirdSize.height !== currentBirdSize.height)) {
-                    this.validateAfterSizeChange('happyal', this.lastBirdSize, currentBirdSize);
-                }
-                this.lastBirdSize = { ...currentBirdSize };
-
-                // Track canvas size changes (mobile viewport changes, etc.)
-                const currentCanvasSize = { width: canvas.width, height: canvas.height };
-                if (this.lastCanvasSize &&
-                    (this.lastCanvasSize.width !== currentCanvasSize.width ||
-                     this.lastCanvasSize.height !== currentCanvasSize.height)) {
-                    console.log('Canvas size changed - running enhanced sprite boundary validation');
-                    // Use enhanced validation to ensure canvas size changes don't affect collision detection
-                    this.validateSpriteBoundariesAcrossRefreshCycles().then(result => {
-                        if (result) {
-                            console.log('✓ Canvas resize validated - all sprite boundaries remain accurate');
-                        } else {
-                            console.warn('✗ Canvas resize caused sprite boundary issues');
-                        }
-                    }).catch(error => {
-                        console.error('Canvas resize validation error:', error);
-                    });
-                    this.validateBackgroundTiling();
-                }
-                this.lastCanvasSize = { ...currentCanvasSize };
-            },
-
-            // Enhanced comprehensive validation method
-            runComprehensiveValidation: async function() {
-                console.log('=== STARTING COMPREHENSIVE SPRITE BOUNDARY VALIDATION ===');
-
-                const results = {
-                    boundaryValidation: false,
-                    contextRefreshTest: false,
-                    assetIntegrity: false,
-                    animationTiming: false,
-                    overallSuccess: false
-                };
-
-                try {
-                    // 1. Enhanced sprite boundary validation across context refresh cycles
-                    results.boundaryValidation = await this.validateSpriteBoundariesAcrossRefreshCycles();
-
-                    // 2. Simulate context refresh scenarios
-                    results.contextRefreshTest = this.simulateContextRefresh();
-
-                    // 3. Validate asset corruption during mid-render refresh
-                    results.assetIntegrity = this.validateAssetIntegrity();
-
-                    // 4. Validate background tiling alignment during scrolling
-                    results.backgroundTiling = this.validateBackgroundTiling();
-
-                    // 5. Validate requestAnimationFrame timing on mobile
-                    results.animationTiming = await this.validateAnimationFrameTiming();
-
-                    // Determine overall success
-                    results.overallSuccess = results.boundaryValidation &&
-                                           results.contextRefreshTest &&
-                                           results.assetIntegrity &&
-                                           results.backgroundTiling &&
-                                           results.animationTiming;
-
-                    console.log('=== COMPREHENSIVE VALIDATION RESULTS ===');
-                    console.log('Boundary validation:', results.boundaryValidation ? '✓ PASS' : '✗ FAIL');
-                    console.log('Context refresh test:', results.contextRefreshTest ? '✓ PASS' : '✗ FAIL');
-                    console.log('Asset integrity:', results.assetIntegrity ? '✓ PASS' : '✗ FAIL');
-                    console.log('Background tiling:', results.backgroundTiling ? '✓ PASS' : '✗ FAIL');
-                    console.log('Animation timing:', results.animationTiming ? '✓ PASS' : '✗ FAIL');
-                    console.log('Overall result:', results.overallSuccess ? '✓ ALL TESTS PASSED' : '✗ SOME TESTS FAILED');
-
-                } catch (error) {
-                    console.error('Comprehensive validation failed:', error);
-                    results.overallSuccess = false;
-                }
-
-                return results;
-            },
-
-            getMemoryStats: function() {
-                const memory = this.getMemoryUsage();
-                const currentTime = Date.now();
-                const gameTimeMinutes = (currentTime - this.gameStartTime) / (1000 * 60);
-                const timeSinceLastRefresh = (currentTime - this.lastContextRefresh) / (1000 * 60);
-
-                return {
-                    usedMB: (memory.used / (1024 * 1024)).toFixed(2),
-                    totalMB: (memory.total / (1024 * 1024)).toFixed(2),
-                    gameTimeMinutes: gameTimeMinutes.toFixed(1),
-                    timeSinceLastRefreshMinutes: timeSinceLastRefresh.toFixed(1),
-                    refreshCount: Math.floor((currentTime - this.gameStartTime) / (this.lastContextRefresh - this.gameStartTime))
-                };
-            }
-        };
+        let ctx;
+        let displayWidth, displayHeight, scale;
+        const BASE_HEIGHT = 600;
+
+        function resizeCanvas() {
+            const dpr = window.devicePixelRatio || 1;
+            displayWidth = window.innerWidth;
+            displayHeight = window.innerHeight;
+            canvas.style.width = displayWidth + 'px';
+            canvas.style.height = displayHeight + 'px';
+            canvas.width = displayWidth * dpr;
+            canvas.height = displayHeight * dpr;
+            ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            scale = displayHeight / BASE_HEIGHT;
+        }
+
+        resizeCanvas();
+
+        function s(v) { return v * scale; }
 
         // Asset loading
+        const birdImage = new Image();
+        birdImage.src = 'happyal.png';
         const columnImage = new Image();
         columnImage.src = 'column.png';
         const snowImage = new Image();
         snowImage.src = 'snow.png';
-        const birdImage = new Image();
-        birdImage.src = 'happyal.png';
         const monkeyImage = new Image();
         monkeyImage.src = 'monkey.png';
         const backgroundImage = new Image();
@@ -1256,725 +63,372 @@
         let assetsLoaded = 0;
         const totalAssets = 7;
 
-        function checkAssetsLoaded() {
-            assetsLoaded++;
-            console.log(`Asset loaded: ${assetsLoaded}/${totalAssets}`);
-            if (assetsLoaded === totalAssets) {
-                console.log('All assets loaded successfully');
-            }
-        }
+        function onAssetLoad() { assetsLoaded++; }
+        function onAssetError(name) { return function() { console.error('Failed to load: ' + name); assetsLoaded++; }; }
 
-        function handleAssetError(assetName) {
-            return function() {
-                console.error(`Failed to load asset: ${assetName}`);
-                // Still increment counter to prevent game from hanging
-                checkAssetsLoaded();
-            };
-        }
+        [[birdImage, 'happyal.png'], [columnImage, 'column.png'], [snowImage, 'snow.png'],
+         [monkeyImage, 'monkey.png'], [backgroundImage, 'background.png'],
+         [homepageImage, 'homepage.png'], [startgamebuttonImage, 'startgamebutton.png']
+        ].forEach(function(pair) { pair[0].onload = onAssetLoad; pair[0].onerror = onAssetError(pair[1]); });
 
-        columnImage.onload = checkAssetsLoaded;
-        columnImage.onerror = handleAssetError('column.png');
-        snowImage.onload = checkAssetsLoaded;
-        snowImage.onerror = handleAssetError('snow.png');
-        birdImage.onload = checkAssetsLoaded;
-        birdImage.onerror = handleAssetError('happyal.png');
-        monkeyImage.onload = checkAssetsLoaded;
-        monkeyImage.onerror = handleAssetError('monkey.png');
-        backgroundImage.onload = checkAssetsLoaded;
-        backgroundImage.onerror = handleAssetError('background.png');
-        homepageImage.onload = checkAssetsLoaded;
-        homepageImage.onerror = handleAssetError('homepage.png');
-        startgamebuttonImage.onload = checkAssetsLoaded;
-        startgamebuttonImage.onerror = handleAssetError('startgamebutton.png');
+        // Scaled game constants
+        function columnWidth() { return s(80); }
+        function columnGap() { return s(200); }
+        function columnSpeed() { return s(2); }
+        function powerUpSize() { return s(30); }
+        function powerUpSpeed() { return s(2); }
+        const SPAWN_INTERVAL = 1800;
+        const POWERUP_MIN_SPAWN = 4000;
+        const POWERUP_MAX_SPAWN = 12000;
+        const INVULNERABILITY_DURATION = 10000;
 
-        // Game constants
-        const COLUMN_WIDTH = 80;
-        const COLUMN_GAP = 200;
-        const COLUMN_SPEED = 2;
-        const SPAWN_INTERVAL = 1800; // 1.8 seconds (earlier column spawning)
-
-        // Power-up constants (reduced spawn intervals for more frequent snow power-ups)
-        const POWERUP_MIN_SPAWN = 4000; // 4 seconds (reduced from 8)
-        const POWERUP_MAX_SPAWN = 12000; // 12 seconds (reduced from 20)
-        const POWERUP_SIZE = 30;
-        const POWERUP_SPEED = 2;
-        const INVULNERABILITY_DURATION = 10000; // 10 seconds
-
-        // Game state management
+        // Game state
         let gameState = {
-            state: 'homepage', // 'homepage', 'playing', 'gameOver'
+            state: 'homepage',
             running: false,
             gameOver: false,
             score: 0,
-            highScore: 0, // Session-based high score (not persistent)
+            highScore: parseInt(localStorage.getItem('happyAlHighScore')) || 0,
             lastTime: 0,
             lastColumnSpawn: 0,
             lastPowerUpSpawn: 0,
             nextPowerUpSpawn: 0,
-            columnRetractionLevel: 0, // 2.5% per power-up collected
-            columnRetractionTimestamps: [], // Track when each retraction was applied for 15-second revert
+            columnRetractionLevel: 0,
+            columnRetractionTimestamps: [],
             isInvulnerable: false,
             invulnerabilityStart: 0,
             invulnerabilityFlashTime: 0,
-            startButtonBounce: 0 // For start button animation
+            startButtonBounce: 0
         };
 
-        // Bird object with physics
+        // Bird
         const bird = {
-            x: canvas.width * 0.2,
-            y: canvas.height / 2,
-            width: 75, // Increased by 25% from 60
-            height: 56, // Increased by 25% from 45 (rounded from 56.25)
-            velocity: 0,
-            gravity: 0.6,
-            jumpPower: -8,
-            maxFallSpeed: 8,
+            x: 0, y: 0, width: 0, height: 0,
+            velocity: 0, gravity: 0, jumpPower: 0, maxFallSpeed: 0,
+
+            init: function() {
+                this.width = s(75);
+                this.height = s(56);
+                this.gravity = s(0.6);
+                this.jumpPower = s(-8);
+                this.maxFallSpeed = s(8);
+                this.x = displayWidth * 0.2;
+                this.y = displayHeight / 2;
+                this.velocity = 0;
+            },
 
             update: function() {
-                // Apply gravity
                 this.velocity += this.gravity;
-
-                // Limit fall speed
-                if (this.velocity > this.maxFallSpeed) {
-                    this.velocity = this.maxFallSpeed;
-                }
-
-                // Update position
+                if (this.velocity > this.maxFallSpeed) this.velocity = this.maxFallSpeed;
                 this.y += this.velocity;
-
-                // Check ground collision
-                if (this.y + this.height > canvas.height) {
-                    this.y = canvas.height - this.height;
+                if (this.y + this.height > displayHeight) {
+                    this.y = displayHeight - this.height;
                     this.velocity = 0;
-                    gameOver();
+                    triggerGameOver();
                 }
-
-                // Check ceiling collision
                 if (this.y < 0) {
                     this.y = 0;
                     this.velocity = 0;
-                    gameOver();
+                    triggerGameOver();
                 }
             },
 
-            jump: function() {
-                this.velocity = this.jumpPower;
-            },
+            jump: function() { this.velocity = this.jumpPower; },
 
             render: function() {
-                // Handle invulnerability flashing
                 let shouldRender = true;
                 if (gameState.isInvulnerable) {
                     const elapsed = Date.now() - gameState.invulnerabilityStart;
                     const progress = elapsed / INVULNERABILITY_DURATION;
-
-                    // Flash frequency increases as invulnerability expires (progressive intensity)
-                    const baseFlashInterval = 200; // Base flash speed
-                    const flashInterval = baseFlashInterval * (1 - progress * 0.8); // Gets faster as it expires
+                    const flashInterval = 200 * (1 - progress * 0.8);
                     shouldRender = Math.floor(Date.now() / flashInterval) % 2 === 0;
                 }
+                if (!shouldRender) return;
 
-                if (shouldRender) {
-                    if (assetsLoaded === totalAssets) {
-                        // Use the loaded happyal.png sprite
-                        if (gameState.isInvulnerable) {
-                            ctx.shadowColor = '#FFD700';
-                            ctx.shadowBlur = 10;
-                        }
-                        // Render bird sprite 50% larger while maintaining collision boundaries
-                        const renderWidth = this.width * 1.5;
-                        const renderHeight = this.height * 1.5;
-                        const renderX = this.x - (renderWidth - this.width) / 2; // Center the larger sprite
-                        const renderY = this.y - (renderHeight - this.height) / 2;
-                        ctx.drawImage(birdImage, renderX, renderY, renderWidth, renderHeight);
-                        ctx.shadowBlur = 0;
-                    } else {
-                        // Fallback rendering if image not loaded
-                        // Render fallback bird 50% larger while maintaining collision boundaries
-                        const renderWidth = this.width * 1.5;
-                        const renderHeight = this.height * 1.5;
-                        const renderX = this.x - (renderWidth - this.width) / 2; // Center the larger sprite
-                        const renderY = this.y - (renderHeight - this.height) / 2;
+                const rw = this.width * 1.5;
+                const rh = this.height * 1.5;
+                const rx = this.x - (rw - this.width) / 2;
+                const ry = this.y - (rh - this.height) / 2;
 
-                        // Bird body (with invulnerability glow effect)
-                        if (gameState.isInvulnerable) {
-                            ctx.fillStyle = '#FFE55C'; // Slightly brighter when invulnerable
-                            ctx.shadowColor = '#FFD700';
-                            ctx.shadowBlur = 10;
-                        } else {
-                            ctx.fillStyle = '#FFD700';
-                            ctx.shadowBlur = 0;
-                        }
-                        ctx.fillRect(renderX, renderY, renderWidth, renderHeight);
-
-                        // Bird outline
-                        ctx.strokeStyle = gameState.isInvulnerable ? '#FFA500' : '#FF8C00';
-                        ctx.lineWidth = 2;
-                        ctx.strokeRect(renderX, renderY, renderWidth, renderHeight);
-
-                        // Reset shadow
-                        ctx.shadowBlur = 0;
-
-                        // Eye
-                        ctx.fillStyle = '#000';
-                        ctx.beginPath();
-                        ctx.arc(this.x + this.width * 0.7, this.y + this.height * 0.3, 4, 0, Math.PI * 2);
-                        ctx.fill();
-
-                        // Beak
-                        ctx.fillStyle = gameState.isInvulnerable ? '#FFA500' : '#FF8C00';
-                        ctx.beginPath();
-                        ctx.moveTo(this.x + this.width, this.y + this.height * 0.4);
-                        ctx.lineTo(this.x + this.width + 10, this.y + this.height * 0.5);
-                        ctx.lineTo(this.x + this.width, this.y + this.height * 0.6);
-                        ctx.closePath();
-                        ctx.fill();
-                    }
+                if (gameState.isInvulnerable) {
+                    ctx.shadowColor = '#FFD700';
+                    ctx.shadowBlur = s(10);
                 }
+
+                if (assetsLoaded === totalAssets) {
+                    ctx.drawImage(birdImage, rx, ry, rw, rh);
+                } else {
+                    ctx.fillStyle = gameState.isInvulnerable ? '#FFE55C' : '#FFD700';
+                    ctx.fillRect(rx, ry, rw, rh);
+                    ctx.strokeStyle = gameState.isInvulnerable ? '#FFA500' : '#FF8C00';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(rx, ry, rw, rh);
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath();
+                    ctx.arc(this.x + this.width * 0.7, this.y + this.height * 0.3, s(4), 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = gameState.isInvulnerable ? '#FFA500' : '#FF8C00';
+                    ctx.beginPath();
+                    ctx.moveTo(this.x + this.width, this.y + this.height * 0.4);
+                    ctx.lineTo(this.x + this.width + s(10), this.y + this.height * 0.5);
+                    ctx.lineTo(this.x + this.width, this.y + this.height * 0.6);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.shadowBlur = 0;
             },
 
             getBounds: function() {
-                // Reduced collision boundaries to match actual sprite boundaries
-                // Sprite has transparent padding, so reduce collision box by ~15% on all sides
-                const collisionPadding = 0.15;
-                const widthReduction = this.width * collisionPadding;
-                const heightReduction = this.height * collisionPadding;
-
+                const pad = 0.15;
+                const wr = this.width * pad;
+                const hr = this.height * pad;
                 return {
-                    left: this.x + widthReduction,
-                    right: this.x + this.width - widthReduction,
-                    top: this.y + heightReduction,
-                    bottom: this.y + this.height - heightReduction
+                    left: this.x + wr,
+                    right: this.x + this.width - wr,
+                    top: this.y + hr,
+                    bottom: this.y + this.height - hr
                 };
             }
         };
 
-        // Columns array
+        // Columns and power-ups
         let columns = [];
-
-        // Power-ups array
         let powerUps = [];
 
-        // Power-up class
-        function PowerUp(x, y, type) {
-            this.x = x;
-            this.y = y;
-            this.width = POWERUP_SIZE;
-            this.height = POWERUP_SIZE;
-            this.type = type; // 'snow' or 'monkey'
-            this.collected = false;
-
-            this.update = function() {
-                this.x -= POWERUP_SPEED;
-            };
-
-            this.render = function() {
-                if (assetsLoaded === totalAssets) {
-                    // Render power-up sprites 50% larger while maintaining collision boundaries
-                    const renderWidth = this.width * 1.5;
-                    const renderHeight = this.height * 1.5;
-                    const renderX = this.x - (renderWidth - this.width) / 2; // Center the larger sprite
-                    const renderY = this.y - (renderHeight - this.height) / 2;
-
-                    if (this.type === 'snow') {
-                        ctx.drawImage(snowImage, renderX, renderY, renderWidth, renderHeight);
-                    } else if (this.type === 'monkey') {
-                        ctx.drawImage(monkeyImage, renderX, renderY, renderWidth, renderHeight);
-                    }
-                } else {
-                    // Fallback rendering - render 50% larger while maintaining collision boundaries
-                    const renderWidth = this.width * 1.5;
-                    const renderHeight = this.height * 1.5;
-                    const renderX = this.x - (renderWidth - this.width) / 2; // Center the larger sprite
-                    const renderY = this.y - (renderHeight - this.height) / 2;
-
-                    if (this.type === 'snow') {
-                        ctx.fillStyle = '#E0E0E0';
-                        ctx.fillRect(renderX, renderY, renderWidth, renderHeight);
-                        ctx.fillStyle = '#FFF';
-                        const innerMargin = 5 * 1.5; // Scale the inner margin proportionally
-                        ctx.fillRect(renderX + innerMargin, renderY + innerMargin, renderWidth - 2 * innerMargin, renderHeight - 2 * innerMargin);
-                    } else if (this.type === 'monkey') {
-                        ctx.fillStyle = '#8B4513';
-                        ctx.fillRect(renderX, renderY, renderWidth, renderHeight);
-                        ctx.fillStyle = '#DEB887';
-                        const innerMargin = 5 * 1.5; // Scale the inner margin proportionally
-                        ctx.fillRect(renderX + innerMargin, renderY + innerMargin, renderWidth - 2 * innerMargin, renderHeight - 2 * innerMargin);
-                    }
-                }
-            };
-
-            this.getBounds = function() {
-                return {
-                    left: this.x,
-                    right: this.x + this.width,
-                    top: this.y,
-                    bottom: this.y + this.height
-                };
-            };
-
-            this.isOffScreen = function() {
-                return this.x + this.width < 0;
-            };
-
-            this.checkCollision = function(birdBounds) {
-                const bounds = this.getBounds();
-                return birdBounds.right > bounds.left && birdBounds.left < bounds.right &&
-                       birdBounds.bottom > bounds.top && birdBounds.top < bounds.bottom;
-            };
-        }
-
         // Column class
-        function Column(x, gapSize = COLUMN_GAP) {
+        function Column(x) {
             this.x = x;
-            this.width = COLUMN_WIDTH;
-
-            // Random gap position (between 20% and 70% of screen height)
-            const minGapY = canvas.height * 0.2;
-            const maxGapY = canvas.height * 0.7;
+            this.width = columnWidth();
+            const gap = columnGap();
+            const minGapY = displayHeight * 0.2;
+            const maxGapY = displayHeight * 0.7;
             this.gapY = minGapY + Math.random() * (maxGapY - minGapY);
-
             this.topHeight = this.gapY;
-            this.bottomY = this.gapY + gapSize;
-            this.bottomHeight = canvas.height - this.bottomY;
+            this.bottomY = this.gapY + gap;
+            this.bottomHeight = displayHeight - this.bottomY;
             this.passed = false;
 
-            this.update = function() {
-                this.x -= COLUMN_SPEED;
-            };
+            this.update = function() { this.x -= columnSpeed(); };
 
             this.render = function() {
-                // Apply column retraction effect to visual rendering only (collision detection uses original heights)
-                const retractionFactor = 1 - gameState.columnRetractionLevel;
-                const retractedTopHeight = this.topHeight * retractionFactor;
-                const retractedBottomHeight = this.bottomHeight * retractionFactor;
-                const retractedBottomY = canvas.height - retractedBottomHeight;
+                var rf = 1 - gameState.columnRetractionLevel;
+                var rtH = this.topHeight * rf;
+                var rbH = this.bottomHeight * rf;
+                var rbY = displayHeight - rbH;
 
-                if (!assetsLoaded) {
-                    // Fallback rendering if image not loaded
+                if (assetsLoaded < totalAssets) {
                     ctx.fillStyle = '#228B22';
-
-                    // Top column (retracted)
-                    ctx.fillRect(this.x, 0, this.width, retractedTopHeight);
-
-                    // Bottom column (retracted, moved down)
-                    ctx.fillRect(this.x, retractedBottomY, this.width, retractedBottomHeight);
-
-                    // Column borders
+                    ctx.fillRect(this.x, 0, this.width, rtH);
+                    ctx.fillRect(this.x, rbY, this.width, rbH);
                     ctx.strokeStyle = '#006400';
                     ctx.lineWidth = 2;
-                    ctx.strokeRect(this.x, 0, this.width, retractedTopHeight);
-                    ctx.strokeRect(this.x, retractedBottomY, this.width, retractedBottomHeight);
+                    ctx.strokeRect(this.x, 0, this.width, rtH);
+                    ctx.strokeRect(this.x, rbY, this.width, rbH);
                 } else {
-                    // Top column (flipped and retracted)
                     ctx.save();
-                    ctx.translate(this.x + this.width/2, retractedTopHeight);
+                    ctx.translate(this.x + this.width / 2, rtH);
                     ctx.scale(1, -1);
-                    ctx.drawImage(columnImage, -this.width/2, 0, this.width, retractedTopHeight);
+                    ctx.drawImage(columnImage, -this.width / 2, 0, this.width, rtH);
                     ctx.restore();
-
-                    // Bottom column (retracted and repositioned)
-                    ctx.drawImage(columnImage, this.x, retractedBottomY, this.width, retractedBottomHeight);
+                    ctx.drawImage(columnImage, this.x, rbY, this.width, rbH);
                 }
             };
 
             this.getBounds = function() {
-                // Reduced column collision boundaries to match actual sprite boundaries
-                // Column sprites have some transparent/rounded edges, so reduce width by ~10%
-                const collisionPadding = 0.1;
-                const widthReduction = this.width * collisionPadding;
-
+                var pad = this.width * 0.1;
                 return {
-                    top: {
-                        left: this.x + widthReduction,
-                        right: this.x + this.width - widthReduction,
-                        top: 0,
-                        bottom: this.topHeight
-                    },
-                    bottom: {
-                        left: this.x + widthReduction,
-                        right: this.x + this.width - widthReduction,
-                        top: this.bottomY,
-                        bottom: canvas.height
-                    }
+                    top: { left: this.x + pad, right: this.x + this.width - pad, top: 0, bottom: this.topHeight },
+                    bottom: { left: this.x + pad, right: this.x + this.width - pad, top: this.bottomY, bottom: displayHeight }
                 };
             };
 
-            this.isOffScreen = function() {
-                return this.x + this.width < 0;
-            };
+            this.isOffScreen = function() { return this.x + this.width < 0; };
 
-            this.checkCollision = function(birdBounds) {
-                const bounds = this.getBounds();
-
-                // Check collision with top column
-                if (birdBounds.right > bounds.top.left && birdBounds.left < bounds.top.right &&
-                    birdBounds.top < bounds.top.bottom) {
-                    return true;
-                }
-
-                // Check collision with bottom column
-                if (birdBounds.right > bounds.bottom.left && birdBounds.left < bounds.bottom.right &&
-                    birdBounds.bottom > bounds.bottom.top) {
-                    return true;
-                }
-
+            this.checkCollision = function(bb) {
+                var b = this.getBounds();
+                if (bb.right > b.top.left && bb.left < b.top.right && bb.top < b.top.bottom) return true;
+                if (bb.right > b.bottom.left && bb.left < b.bottom.right && bb.bottom > b.bottom.top) return true;
                 return false;
             };
 
             this.checkScoring = function(birdX) {
-                // Check if bird has passed this column
-                if (!this.passed && birdX > this.x + this.width) {
-                    this.passed = true;
-                    return true;
-                }
+                if (!this.passed && birdX > this.x + this.width) { this.passed = true; return true; }
                 return false;
             };
         }
 
-        // Spawn new column
-        function spawnColumn() {
-            columns.push(new Column(canvas.width));
+        // PowerUp class
+        function PowerUp(x, y, type) {
+            this.x = x;
+            this.y = y;
+            this.width = powerUpSize();
+            this.height = powerUpSize();
+            this.type = type;
+            this.collected = false;
+
+            this.update = function() { this.x -= powerUpSpeed(); };
+
+            this.render = function() {
+                var rw = this.width * 1.5;
+                var rh = this.height * 1.5;
+                var rx = this.x - (rw - this.width) / 2;
+                var ry = this.y - (rh - this.height) / 2;
+
+                if (assetsLoaded === totalAssets) {
+                    ctx.drawImage(this.type === 'snow' ? snowImage : monkeyImage, rx, ry, rw, rh);
+                } else {
+                    var colors = this.type === 'snow' ? ['#E0E0E0', '#FFF'] : ['#8B4513', '#DEB887'];
+                    ctx.fillStyle = colors[0];
+                    ctx.fillRect(rx, ry, rw, rh);
+                    var m = s(7.5);
+                    ctx.fillStyle = colors[1];
+                    ctx.fillRect(rx + m, ry + m, rw - 2 * m, rh - 2 * m);
+                }
+            };
+
+            this.getBounds = function() {
+                return { left: this.x, right: this.x + this.width, top: this.y, bottom: this.y + this.height };
+            };
+
+            this.isOffScreen = function() { return this.x + this.width < 0; };
+
+            this.checkCollision = function(bb) {
+                var b = this.getBounds();
+                return bb.right > b.left && bb.left < b.right && bb.bottom > b.top && bb.top < b.bottom;
+            };
         }
 
-        // Power-up spawning
+        // Spawning
         function getNextPowerUpSpawnTime() {
             return POWERUP_MIN_SPAWN + Math.random() * (POWERUP_MAX_SPAWN - POWERUP_MIN_SPAWN);
         }
 
+        function spawnColumn() { columns.push(new Column(displayWidth)); }
+
         function spawnPowerUp() {
-            // Weighted power-up type (75% snow, 25% monkey for increased snow frequency)
-            const type = Math.random() < 0.75 ? 'snow' : 'monkey';
-
-            let y;
+            var type = Math.random() < 0.75 ? 'snow' : 'monkey';
+            var y;
             if (type === 'snow') {
-                // Snow power-ups spawn in center-screen positions (middle 60% of screen)
-                const centerRange = canvas.height * 0.6;
-                const centerStart = canvas.height * 0.2;
-                y = centerStart + Math.random() * centerRange;
+                y = displayHeight * 0.2 + Math.random() * displayHeight * 0.6;
             } else {
-                // Monkey power-ups spawn anywhere (avoiding edges)
-                const minY = 50;
-                const maxY = canvas.height - POWERUP_SIZE - 50;
-                y = minY + Math.random() * (maxY - minY);
+                var margin = s(50);
+                y = margin + Math.random() * (displayHeight - powerUpSize() - 2 * margin);
             }
-
-            powerUps.push(new PowerUp(canvas.width, y, type));
-
-            // Set next spawn time
+            powerUps.push(new PowerUp(displayWidth, y, type));
             gameState.nextPowerUpSpawn = getNextPowerUpSpawnTime();
             gameState.lastPowerUpSpawn = Date.now();
         }
 
-        // Power-up collection
-        function collectPowerUp(powerUp) {
-            if (powerUp.type === 'snow') {
-                // Column retraction power-up: reduce column heights by 2.5%
+        // Power-up effects
+        function collectPowerUp(pu) {
+            if (pu.type === 'snow') {
                 gameState.columnRetractionLevel = Math.min(gameState.columnRetractionLevel + 0.025, 0.1);
                 gameState.columnRetractionTimestamps.push(Date.now());
-                console.log(`Snow power-up collected! Column retraction level: ${gameState.columnRetractionLevel} (${(gameState.columnRetractionLevel * 100).toFixed(1)}% height reduction) - All columns shrunk!`);
-            } else if (powerUp.type === 'monkey') {
-                // Invulnerability power-up: 10 seconds of collision immunity
+            } else if (pu.type === 'monkey') {
                 gameState.isInvulnerable = true;
                 gameState.invulnerabilityStart = Date.now();
                 gameState.invulnerabilityFlashTime = 0;
-                console.log('Monkey power-up collected! 10 seconds of invulnerability activated');
             }
         }
 
-        // Check and revert expired column retraction effects (15 second duration)
         function updateColumnRetractionEffects() {
-            const currentTime = Date.now();
-            const RETRACTION_DURATION = 15000; // 15 seconds
-
-            // Remove expired retraction timestamps
-            const oldLength = gameState.columnRetractionTimestamps.length;
+            var now = Date.now();
             gameState.columnRetractionTimestamps = gameState.columnRetractionTimestamps.filter(
-                timestamp => currentTime - timestamp < RETRACTION_DURATION
+                function(t) { return now - t < 15000; }
             );
-
-            // Recalculate retraction level based on active timestamps (2.5% per active timestamp, max 10%)
-            const newRetractionLevel = Math.min(gameState.columnRetractionTimestamps.length * 0.025, 0.1);
-
-            if (newRetractionLevel !== gameState.columnRetractionLevel) {
-                const expiredCount = oldLength - gameState.columnRetractionTimestamps.length;
-                gameState.columnRetractionLevel = newRetractionLevel;
-
-                if (expiredCount > 0) {
-                    console.log(`${expiredCount} column retraction effects expired after 15 seconds. Current level: ${(gameState.columnRetractionLevel * 100).toFixed(1)}% - Columns returning to normal size!`);
-                }
-            }
+            gameState.columnRetractionLevel = Math.min(gameState.columnRetractionTimestamps.length * 0.025, 0.1);
         }
 
-        // Update columns and power-ups
-        function updateColumns() {
-            const currentTime = Date.now();
+        // Update game objects
+        function updateGame() {
+            var now = Date.now();
 
-            // Spawn new columns
-            if (currentTime - gameState.lastColumnSpawn > SPAWN_INTERVAL) {
+            if (now - gameState.lastColumnSpawn > SPAWN_INTERVAL) {
                 spawnColumn();
-                gameState.lastColumnSpawn = currentTime;
+                gameState.lastColumnSpawn = now;
             }
-
-            // Spawn power-ups
-            if (currentTime - gameState.lastPowerUpSpawn > gameState.nextPowerUpSpawn) {
+            if (now - gameState.lastPowerUpSpawn > gameState.nextPowerUpSpawn) {
                 spawnPowerUp();
             }
 
-            // Update existing columns
-            for (let i = columns.length - 1; i >= 0; i--) {
-                const column = columns[i];
-                column.update();
+            var bb = bird.getBounds();
 
-                // Check for scoring
-                if (column.checkScoring(bird.x)) {
+            for (var i = columns.length - 1; i >= 0; i--) {
+                var col = columns[i];
+                col.update();
+                if (col.checkScoring(bird.x)) {
                     gameState.score++;
-
-                    // Update high score if current score exceeds it
                     if (gameState.score > gameState.highScore) {
                         gameState.highScore = gameState.score;
-                        document.getElementById('highScore').textContent = `High Score: ${gameState.highScore}`;
+                        localStorage.setItem('happyAlHighScore', String(gameState.highScore));
                     }
-
-                    document.getElementById('score').textContent = `Score: ${gameState.score}`;
                 }
-
-                // Check collision (only if not invulnerable)
-                if (!gameState.isInvulnerable && column.checkCollision(bird.getBounds())) {
-                    gameOver();
-                }
-
-                // Remove off-screen columns
-                if (column.isOffScreen()) {
-                    columns.splice(i, 1);
-                }
+                if (!gameState.isInvulnerable && col.checkCollision(bb)) triggerGameOver();
+                if (col.isOffScreen()) columns.splice(i, 1);
             }
 
-            // Update power-ups
-            for (let i = powerUps.length - 1; i >= 0; i--) {
-                const powerUp = powerUps[i];
-                powerUp.update();
-
-                // Check collision with bird
-                if (!powerUp.collected && powerUp.checkCollision(bird.getBounds())) {
-                    collectPowerUp(powerUp);
+            for (var i = powerUps.length - 1; i >= 0; i--) {
+                var pu = powerUps[i];
+                pu.update();
+                if (!pu.collected && pu.checkCollision(bb)) {
+                    collectPowerUp(pu);
                     powerUps.splice(i, 1);
-                } else if (powerUp.isOffScreen()) {
-                    // Remove off-screen power-ups
+                } else if (pu.isOffScreen()) {
                     powerUps.splice(i, 1);
                 }
             }
 
-            // Update invulnerability
-            if (gameState.isInvulnerable) {
-                const elapsed = currentTime - gameState.invulnerabilityStart;
-                if (elapsed >= INVULNERABILITY_DURATION) {
-                    gameState.isInvulnerable = false;
-                }
-                // Update flash timing for visual feedback
-                gameState.invulnerabilityFlashTime += 16; // Approximate frame time
+            if (gameState.isInvulnerable && now - gameState.invulnerabilityStart >= INVULNERABILITY_DURATION) {
+                gameState.isInvulnerable = false;
             }
-        }
-
-        // Render columns
-        // Render homepage with bouncing start button
-        function renderHomepage() {
-            // Clear canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Draw homepage background
-            if (homepageImage && homepageImage.complete) {
-                ctx.drawImage(homepageImage, 0, 0, canvas.width, canvas.height);
-            } else {
-                // Fallback gradient background
-                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-                gradient.addColorStop(0, '#87CEEB');
-                gradient.addColorStop(0.5, '#E0F6FF');
-                gradient.addColorStop(1, '#98FB98');
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-            }
-
-            // Update bounce animation
-            gameState.startButtonBounce += 0.1;
-
-            // Draw start button with bouncing animation
-            if (startgamebuttonImage && startgamebuttonImage.complete) {
-                const buttonWidth = 200;
-                const buttonHeight = 80;
-                const buttonX = canvas.width / 2 - buttonWidth / 2;
-                const bounceOffset = Math.sin(gameState.startButtonBounce) * 10;
-                const buttonY = canvas.height / 2 + 50 + bounceOffset;
-
-                ctx.drawImage(startgamebuttonImage, buttonX, buttonY, buttonWidth, buttonHeight);
-            } else {
-                // Fallback button
-                const buttonWidth = 200;
-                const buttonHeight = 60;
-                const buttonX = canvas.width / 2 - buttonWidth / 2;
-                const bounceOffset = Math.sin(gameState.startButtonBounce) * 10;
-                const buttonY = canvas.height / 2 + 50 + bounceOffset;
-
-                // Button background
-                ctx.fillStyle = '#4CAF50';
-                ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
-
-                // Button border
-                ctx.strokeStyle = '#45a049';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(buttonX, buttonY, buttonWidth, buttonHeight);
-
-                // Button text
-                ctx.fillStyle = '#FFF';
-                ctx.font = 'bold 24px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('START GAME', canvas.width / 2, buttonY + 37);
-                ctx.textAlign = 'left';
-            }
-
-            // Text overlays removed to show only homepage.png background and bouncing start button
-        }
-
-        function renderColumns() {
-            columns.forEach(column => column.render());
         }
 
         // Input handling
-        let keys = {};
-
-        // Keyboard input
-        document.addEventListener('keydown', function(event) {
-            keys[event.code] = true;
-
-            if (event.code === 'Space') {
-                event.preventDefault();
-                handleInput();
-            }
-
-            // Debug key combinations for testing
-            // Ctrl+Shift+M: memory stats, Ctrl+Shift+R: manual refresh
-            // Ctrl+Shift+V: comprehensive validation, Ctrl+Shift+B: boundary validation only
-            // Ctrl+Shift+A: asset integrity check
-            if (event.ctrlKey && event.shiftKey) {
-                if (event.code === 'KeyM') {
-                    event.preventDefault();
-                    const stats = memoryMonitor.getMemoryStats();
-                    console.log('Memory Stats:', stats);
-                } else if (event.code === 'KeyR') {
-                    event.preventDefault();
-                    console.log('Manual context refresh triggered');
-                    if (!memoryMonitor.refreshInProgress) {
-                        memoryMonitor.refreshCanvasContext();
-                    }
-                } else if (event.code === 'KeyV') {
-                    // Run comprehensive sprite boundary validation across all 7 sprites
-                    event.preventDefault();
-                    console.log('Manual comprehensive validation triggered');
-                    memoryMonitor.runComprehensiveValidation().then(results => {
-                        if (results.overallSuccess) {
-                            console.log('🎉 Manual validation completed successfully!');
-                        } else {
-                            console.warn('⚠️ Manual validation found issues that need attention.');
-                        }
-                    });
-                } else if (event.code === 'KeyB') {
-                    // Test just boundary validation
-                    event.preventDefault();
-                    console.log('Manual boundary validation triggered');
-                    const result = memoryMonitor.verifyCollisionBoundaries();
-                    console.log('Boundary validation result:', result ? 'PASS' : 'FAIL');
-                } else if (event.code === 'KeyA') {
-                    // Test asset integrity for all 7 sprites
-                    event.preventDefault();
-                    console.log('Manual asset integrity check triggered');
-                    const result = memoryMonitor.validateAssetIntegrity();
-                    console.log('Asset integrity result:', result ? 'PASS' : 'FAIL');
-                }
-            }
-        });
-
-        document.addEventListener('keyup', function(event) {
-            keys[event.code] = false;
-        });
-
-        // Mouse/touch input
-        canvas.addEventListener('click', handleInput);
-        canvas.addEventListener('touchstart', function(event) {
-            event.preventDefault();
-            handleInput();
-        });
+        var fullscreenRequested = false;
+        var isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
         function handleInput() {
-            if (gameState.state === 'homepage') {
-                startGameFromHomepage();
-            } else if (gameState.gameOver) {
-                restartGame();
-            } else if (gameState.running) {
-                bird.jump();
-            } else {
-                startGame();
+            if (!fullscreenRequested) {
+                fullscreenRequested = true;
+                var el = document.documentElement;
+                var rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+                if (rfs) rfs.call(el).catch(function() {});
             }
+
+            if (gameState.state === 'homepage') startGame();
+            else if (gameState.gameOver) restartGame();
+            else if (gameState.running) bird.jump();
+            else startGame();
         }
 
-        // Game over function
-        function gameOver() {
+        document.addEventListener('keydown', function(e) {
+            if (e.code === 'Space') { e.preventDefault(); handleInput(); }
+        });
+
+        canvas.addEventListener('click', handleInput);
+
+        canvas.addEventListener('touchstart', function(e) {
+            e.preventDefault();
+            handleInput();
+        }, { passive: false });
+
+        // Prevent double-tap zoom on mobile
+        var lastTouchEnd = 0;
+        document.addEventListener('touchend', function(e) {
+            var now = Date.now();
+            if (now - lastTouchEnd <= 300) e.preventDefault();
+            lastTouchEnd = now;
+        }, { passive: false });
+
+        // Game state functions
+        function triggerGameOver() {
+            if (gameState.gameOver) return;
             gameState.state = 'gameOver';
             gameState.running = false;
             gameState.gameOver = true;
-
-            // Check if this is a new high score
-            const isNewHighScore = gameState.score === gameState.highScore && gameState.score > 0;
-
-            // Update game over screen
-            document.getElementById('finalScore').textContent = gameState.score;
-            document.getElementById('finalHighScore').textContent = gameState.highScore;
-
-            // Show/hide new high score message
-            if (isNewHighScore) {
-                document.getElementById('newHighScoreMessage').style.display = 'block';
-                document.getElementById('highScoreMessage').style.display = 'none';
-            } else {
-                document.getElementById('newHighScoreMessage').style.display = 'none';
-                document.getElementById('highScoreMessage').style.display = 'block';
-            }
-
-            document.getElementById('gameOver').style.display = 'block';
         }
 
-        // Restart game function (returns to homepage)
-        function restartGame() {
-            gameState.state = 'homepage';
-            gameState.running = false;
-            gameState.gameOver = false;
-            gameState.score = 0;
-
-            // Reset power-up state
-            gameState.columnRetractionLevel = 0;
-            gameState.columnRetractionTimestamps = [];
-            gameState.isInvulnerable = false;
-            gameState.invulnerabilityStart = 0;
-            gameState.invulnerabilityFlashTime = 0;
-
-            // Reset bird
-            bird.x = canvas.width * 0.2;
-            bird.y = canvas.height / 2;
-            bird.velocity = 0;
-
-            // Clear columns and power-ups
-            columns = [];
-            powerUps = [];
-
-            // Reset memory monitor for new game session
-            memoryMonitor.init();
-
-            // Update UI
-            document.getElementById('score').textContent = `Score: 0`;
-            document.getElementById('highScore').textContent = `High Score: ${gameState.highScore}`;
-            document.getElementById('gameOver').style.display = 'none';
-        }
-
-        // Start game from homepage function
-        function startGameFromHomepage() {
+        function startGame() {
             gameState.state = 'playing';
             gameState.running = true;
             gameState.gameOver = false;
@@ -1982,157 +436,57 @@
             gameState.lastColumnSpawn = Date.now();
             gameState.lastPowerUpSpawn = Date.now();
             gameState.nextPowerUpSpawn = getNextPowerUpSpawnTime();
-
-            // Reset bird
-            bird.x = canvas.width * 0.2;
-            bird.y = canvas.height / 2;
-            bird.velocity = 0;
-
-            // Clear arrays
+            gameState.columnRetractionLevel = 0;
+            gameState.columnRetractionTimestamps = [];
+            gameState.isInvulnerable = false;
+            gameState.invulnerabilityStart = 0;
+            gameState.invulnerabilityFlashTime = 0;
+            bird.init();
             columns = [];
             powerUps = [];
-
-            // Update UI
-            document.getElementById('score').textContent = `Score: 0`;
-            document.getElementById('gameOver').style.display = 'none';
+            bgScrollX = 0;
+            memoryMonitor.init();
         }
 
-        // Start game function (legacy for existing code)
-        function startGame() {
-            if (gameState.state === 'homepage') {
-                startGameFromHomepage();
-            } else {
-                gameState.running = true;
-                gameState.lastColumnSpawn = Date.now();
-            }
+        function restartGame() {
+            gameState.state = 'homepage';
+            gameState.gameOver = false;
+            gameState.running = false;
         }
 
-        // Game loop
-        function gameLoop(currentTime) {
-            const deltaTime = currentTime - gameState.lastTime;
-            gameState.lastTime = currentTime;
-
-            // Memory monitoring (only during active gameplay)
-            if (gameState.running && !gameState.gameOver && !memoryMonitor.refreshInProgress) {
-                memoryMonitor.checkMemoryUsage();
-
-                // Monitor sprite changes for boundary validation (every few seconds to avoid performance impact)
-                if (currentTime - memoryMonitor.lastMemoryCheck > 3000) { // Every 3 seconds
-                    memoryMonitor.monitorSpriteChanges();
-                }
-            }
-
-            // Skip frame rendering if context refresh is in progress
-            if (memoryMonitor.refreshInProgress) {
-                requestAnimationFrame(gameLoop);
-                return;
-            }
-
-            // Clear canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Update game objects
-            if (gameState.running && !gameState.gameOver) {
-                bird.update();
-                updateColumns();
-                updateColumnRetractionEffects();
-            }
-
-            // Render everything
-            renderGame();
-
-            // Continue the game loop
-            requestAnimationFrame(gameLoop);
-        }
-
-        function renderGame() {
-            if (gameState.state === 'homepage') {
-                renderHomepage();
-                return;
-            }
-
-            // Clear canvas for gameplay
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Render background.png with proper tiling
-            renderBackground();
-
-            // Render background elements
-            renderClouds();
-
-            // Render columns
-            renderColumns();
-
-            // Render power-ups
-            powerUps.forEach(powerUp => powerUp.render());
-
-            // Render bird
-            bird.render();
-
-            // Render game state info for paused state
-            if (!gameState.running && !gameState.gameOver && gameState.state === 'playing') {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-                ctx.fillStyle = '#FFF';
-                ctx.font = '48px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('Happy Al', canvas.width / 2, canvas.height / 2 - 50);
-
-                ctx.font = '24px Arial';
-                ctx.fillText('Press SPACEBAR or CLICK to continue!', canvas.width / 2, canvas.height / 2 + 20);
-
-                // Reset text alignment
-                ctx.textAlign = 'left';
-            }
-        }
+        // Rendering
+        var bgScrollX = 0;
 
         function renderBackground() {
-            // Render background.png with proper tiling during gameplay
-            if (backgroundImage && backgroundImage.complete && backgroundImage.naturalWidth > 0) {
-                const tileWidth = backgroundImage.naturalWidth;
-                const tileHeight = backgroundImage.naturalHeight;
-
-                // Calculate how many tiles we need to cover the canvas
-                const tilesX = Math.ceil(canvas.width / tileWidth);
-                const tilesY = Math.ceil(canvas.height / tileHeight);
-
-                // Draw background tiles to fill the entire canvas
-                for (let x = 0; x < tilesX; x++) {
-                    for (let y = 0; y < tilesY; y++) {
-                        ctx.drawImage(backgroundImage, x * tileWidth, y * tileHeight, tileWidth, tileHeight);
-                    }
+            if (backgroundImage.complete && backgroundImage.naturalWidth > 0) {
+                if (gameState.running && !gameState.gameOver) bgScrollX -= s(0.5);
+                var drawH = displayHeight;
+                var drawW = drawH * (backgroundImage.naturalWidth / backgroundImage.naturalHeight);
+                var offset = ((bgScrollX % drawW) + drawW) % drawW;
+                for (var x = -offset; x < displayWidth + drawW; x += drawW) {
+                    ctx.drawImage(backgroundImage, x, 0, drawW, drawH);
                 }
             } else {
-                // Fallback gradient background if background.png isn't loaded
-                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-                gradient.addColorStop(0, '#87CEEB');
-                gradient.addColorStop(0.5, '#E0F6FF');
-                gradient.addColorStop(1, '#98FB98');
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                var g = ctx.createLinearGradient(0, 0, 0, displayHeight);
+                g.addColorStop(0, '#87CEEB');
+                g.addColorStop(0.5, '#E0F6FF');
+                g.addColorStop(1, '#98FB98');
+                ctx.fillStyle = g;
+                ctx.fillRect(0, 0, displayWidth, displayHeight);
             }
         }
 
         function renderClouds() {
-            // Simple cloud rendering for atmosphere
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-
-            // Cloud 1
-            drawCloud(150, 100, 1);
-
-            // Cloud 2
-            drawCloud(500, 150, 0.8);
-
-            // Cloud 3
-            drawCloud(650, 80, 1.2);
+            drawCloud(displayWidth * 0.19, displayHeight * 0.17, scale);
+            drawCloud(displayWidth * 0.63, displayHeight * 0.25, scale * 0.8);
+            drawCloud(displayWidth * 0.81, displayHeight * 0.13, scale * 1.2);
         }
 
-        function drawCloud(x, y, scale) {
+        function drawCloud(x, y, sc) {
             ctx.save();
             ctx.translate(x, y);
-            ctx.scale(scale, scale);
-
+            ctx.scale(sc, sc);
             ctx.beginPath();
             ctx.arc(0, 0, 20, 0, Math.PI * 2);
             ctx.arc(25, 0, 25, 0, Math.PI * 2);
@@ -2140,61 +494,202 @@
             ctx.arc(15, -15, 18, 0, Math.PI * 2);
             ctx.arc(35, -15, 22, 0, Math.PI * 2);
             ctx.fill();
-
             ctx.restore();
         }
 
-        // Initialize game
-        function initGame() {
-            console.log('Happy Al game initialized');
+        function renderScore() {
+            var pad = s(10);
+            var boxW = s(150);
+            var boxH = s(50);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+            ctx.beginPath();
+            ctx.roundRect(pad, pad, boxW, boxH, s(8));
+            ctx.fill();
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'bold ' + s(20) + 'px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText('Score: ' + gameState.score, pad + s(10), pad + s(22));
+            ctx.font = s(14) + 'px Arial';
+            ctx.fillText('Best: ' + gameState.highScore, pad + s(10), pad + s(42));
+        }
 
-            // Initialize memory monitoring system
-            memoryMonitor.init();
-
-            // Set initial game state
-            gameState.running = false;
-            gameState.gameOver = false;
-            gameState.score = 0;
-            gameState.lastTime = performance.now();
-            gameState.lastColumnSpawn = Date.now();
-
-            // Initialize power-up state
-            gameState.lastPowerUpSpawn = Date.now();
-            gameState.nextPowerUpSpawn = getNextPowerUpSpawnTime();
-            gameState.columnRetractionLevel = 0;
-            gameState.columnRetractionTimestamps = [];
-            gameState.isInvulnerable = false;
-            gameState.invulnerabilityStart = 0;
-            gameState.invulnerabilityFlashTime = 0;
-
-            // Initialize UI displays
-            document.getElementById('score').textContent = `Score: ${gameState.score}`;
-            document.getElementById('highScore').textContent = `High Score: ${gameState.highScore}`;
-
-            // Log initial memory status
-            if (performance.memory) {
-                console.log('Initial memory usage:', (performance.memory.usedJSHeapSize / (1024 * 1024)).toFixed(2), 'MB');
+        function renderHomepage() {
+            if (homepageImage.complete) {
+                ctx.drawImage(homepageImage, 0, 0, displayWidth, displayHeight);
+            } else {
+                renderBackground();
             }
 
-            // Start the game loop
+            gameState.startButtonBounce += 0.1;
+            var bw = s(200);
+            var bh = s(80);
+            var bx = displayWidth / 2 - bw / 2;
+            var bounce = Math.sin(gameState.startButtonBounce) * s(10);
+            var by = displayHeight / 2 + s(50) + bounce;
+
+            if (startgamebuttonImage.complete) {
+                ctx.drawImage(startgamebuttonImage, bx, by, bw, bh);
+            } else {
+                ctx.fillStyle = '#4CAF50';
+                ctx.beginPath();
+                ctx.roundRect(bx, by, bw, bh, s(8));
+                ctx.fill();
+                ctx.strokeStyle = '#45a049';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                ctx.fillStyle = '#FFF';
+                ctx.font = 'bold ' + s(24) + 'px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('START GAME', displayWidth / 2, by + bh * 0.6);
+            }
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.font = s(18) + 'px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(isMobile ? 'Tap to play!' : 'Press SPACE or click to play!', displayWidth / 2, displayHeight - s(40));
+            ctx.textAlign = 'left';
+        }
+
+        function renderGameOver() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.fillRect(0, 0, displayWidth, displayHeight);
+
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#FFF';
+            ctx.font = 'bold ' + s(48) + 'px Arial';
+            ctx.fillText('Game Over!', displayWidth / 2, displayHeight / 2 - s(60));
+
+            ctx.font = s(24) + 'px Arial';
+            ctx.fillText('Score: ' + gameState.score, displayWidth / 2, displayHeight / 2 - s(15));
+
+            if (gameState.score > 0 && gameState.score === gameState.highScore) {
+                ctx.fillStyle = '#FFD700';
+                ctx.font = 'bold ' + s(28) + 'px Arial';
+                ctx.fillText('NEW HIGH SCORE!', displayWidth / 2, displayHeight / 2 + s(25));
+            } else {
+                ctx.fillText('High Score: ' + gameState.highScore, displayWidth / 2, displayHeight / 2 + s(25));
+            }
+
+            ctx.fillStyle = '#FFF';
+            ctx.font = s(20) + 'px Arial';
+            ctx.fillText(isMobile ? 'Tap to restart' : 'Press SPACE or click to restart', displayWidth / 2, displayHeight / 2 + s(75));
+            ctx.textAlign = 'left';
+        }
+
+        function renderGame() {
+            ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+            if (gameState.state === 'homepage') { renderHomepage(); return; }
+
+            renderBackground();
+            renderClouds();
+            columns.forEach(function(c) { c.render(); });
+            powerUps.forEach(function(p) { p.render(); });
+            bird.render();
+            renderScore();
+
+            if (gameState.gameOver) renderGameOver();
+        }
+
+        // Memory monitor (stripped to essentials)
+        var memoryMonitor = {
+            gameStartTime: 0,
+            lastRefresh: 0,
+            lastCheck: 0,
+
+            init: function() {
+                this.gameStartTime = Date.now();
+                this.lastRefresh = Date.now();
+                this.lastCheck = Date.now();
+            },
+
+            check: function() {
+                var now = Date.now();
+                if (now - this.lastCheck < 5000) return;
+                this.lastCheck = now;
+                if (now - this.gameStartTime < 25 * 60 * 1000) return;
+                if (!performance.memory) return;
+
+                var used = performance.memory.usedJSHeapSize;
+                if (used > 100 * 1024 * 1024 ||
+                    (used > 50 * 1024 * 1024 && now - this.lastRefresh > 10 * 60 * 1000)) {
+                    this.refresh();
+                }
+            },
+
+            refresh: function() {
+                var dpr = window.devicePixelRatio || 1;
+                ctx = canvas.getContext('2d');
+                ctx.scale(dpr, dpr);
+                this.lastRefresh = Date.now();
+            }
+        };
+
+        // Game loop
+        function gameLoop(currentTime) {
+            gameState.lastTime = currentTime;
+
+            if (gameState.running && !gameState.gameOver) {
+                bird.update();
+                updateGame();
+                updateColumnRetractionEffects();
+                memoryMonitor.check();
+            }
+
+            renderGame();
             requestAnimationFrame(gameLoop);
         }
 
-        // Handle window focus/blur
-        window.addEventListener('focus', function() {
-            gameState.lastTime = performance.now();
-        });
-
-        // Handle window resize
+        // Resize handler
         window.addEventListener('resize', function() {
-            const isMobile = window.innerWidth <= 768;
-            if (isMobile) {
-                canvas.style.width = '95vw';
-                canvas.style.height = '70vh';
-            }
+            var oldW = displayWidth;
+            var oldH = displayHeight;
+            var oldScale = scale;
+            resizeCanvas();
+            if (!oldW || !oldH) return;
+
+            var xRatio = displayWidth / oldW;
+            var yRatio = displayHeight / oldH;
+            var sRatio = scale / oldScale;
+
+            bird.x *= xRatio;
+            bird.y *= yRatio;
+            bird.velocity *= sRatio;
+            bird.width = s(75);
+            bird.height = s(56);
+            bird.gravity = s(0.6);
+            bird.jumpPower = s(-8);
+            bird.maxFallSpeed = s(8);
+
+            columns.forEach(function(col) {
+                col.x *= xRatio;
+                col.width = columnWidth();
+                col.gapY *= yRatio;
+                col.topHeight = col.gapY;
+                col.bottomY *= yRatio;
+                col.bottomHeight = displayHeight - col.bottomY;
+            });
+
+            powerUps.forEach(function(pu) {
+                pu.x *= xRatio;
+                pu.y *= yRatio;
+                pu.width = powerUpSize();
+                pu.height = powerUpSize();
+            });
         });
 
-        // Start the game when page loads
+        window.addEventListener('focus', function() { gameState.lastTime = performance.now(); });
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) gameState.lastTime = performance.now();
+        });
+
+        // Init
+        function initGame() {
+            memoryMonitor.init();
+            bird.init();
+            requestAnimationFrame(gameLoop);
+        }
+
         window.addEventListener('load', initGame);
     </script>
 </body>
