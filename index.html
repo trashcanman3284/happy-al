@@ -459,7 +459,7 @@
 
         function renderBackground() {
             if (backgroundImage.complete && backgroundImage.naturalWidth > 0) {
-                if (gameState.running && !gameState.gameOver) bgScrollX -= s(0.5);
+                if (gameState.running && !gameState.gameOver) bgScrollX += s(0.5);
                 var drawH = displayHeight;
                 var drawW = drawH * (backgroundImage.naturalWidth / backgroundImage.naturalHeight);
                 var offset = ((bgScrollX % drawW) + drawW) % drawW;
