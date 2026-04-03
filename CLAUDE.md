@@ -30,4 +30,8 @@
 - Task history: @docs/TASK_LOG.md
 - Architecture: @docs/ARCHITECTURE.md
 
+## Autonomous Execution Rules
+- NEVER start long-running processes (http servers, watch modes, dev servers, python -m http.server, npx serve, etc.) during autonomous execution. The Agent SDK cannot interact with or terminate persistent processes — they will block the entire pipeline indefinitely.
+- To verify HTML/JS works, check file syntax and structure — do not attempt to serve and browse.
+
 <!-- Last optimized: 2026-04-02 -->
